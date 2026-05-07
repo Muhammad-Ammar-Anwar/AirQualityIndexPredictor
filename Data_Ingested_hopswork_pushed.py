@@ -194,6 +194,8 @@ def push_to_hopsworks(df_now):
     print("\n🚀 Connecting to Hopsworks...")
 
     project = hopsworks.login(
+        host="eu-west.cloud.hopsworks.ai",
+        project="AQI_Predictor_Internship",
         api_key_value=HOPSWORKS_API_KEY
     )
 

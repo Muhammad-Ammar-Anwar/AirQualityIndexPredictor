@@ -1,9 +1,10 @@
-pandas==2.1.4
+pandas
 requests
 python-dotenv
-hopsworks==4.2
+hopsworks==4.7
 rich
 pyarrow
 confluent-kafka
 scikit-learn
 joblib
+twofish
