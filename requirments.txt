@@ -1,0 +1,9 @@
+pandas==2.1.4
+requests
+python-dotenv
+hopsworks==4.2
+rich
+pyarrow
+confluent-kafka
+scikit-learn
+joblib
