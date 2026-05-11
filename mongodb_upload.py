@@ -4,17 +4,20 @@
 # Handles deduplication via datetime unique index
 # -----------------------------
 
+import os
 import numpy as np
 import pandas as pd
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from pymongo import ASCENDING, errors
+from dotenv import load_dotenv
 
+load_dotenv()
 
 # Default MongoDB settings
-DEFAULT_URI = ('MONGODB_URI')
-DEFAULT_DB = "aqi_feature_store"
-DEFAULT_COLLECTION = "karachi_aqi_features"
+DEFAULT_URI = os.getenv('MONGODB_URI')
+DEFAULT_DB = os.getenv('MONGODB_DB')
+DEFAULT_COLLECTION = os.getenv('MONGODB_COLLECTION')
 
 
 def get_client(uri=None):

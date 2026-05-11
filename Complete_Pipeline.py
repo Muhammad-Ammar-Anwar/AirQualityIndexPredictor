@@ -5,7 +5,7 @@
 # Run this to populate the feature store from scratch
 # -----------------------------
 
-from api_data_fetch import fetch_range_data, LATITUDE, LONGITUDE
+from Fetch_Historical_Data import fetch_range_data, LATITUDE, LONGITUDE
 from feature_engineering import engineer_features
 from mongodb_upload import upload_dataframe, clear_collection, get_collection_info
 from datetime import datetime, timedelta
