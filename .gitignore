@@ -1,3 +1,4 @@
 .env
 venv/
 karachi_weather_pollutants_2024_2025.csv
+mongo/
