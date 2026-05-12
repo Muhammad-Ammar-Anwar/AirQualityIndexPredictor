@@ -15,7 +15,11 @@
 
 import os
 import pandas as pd
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from feature_engineering import engineer_features

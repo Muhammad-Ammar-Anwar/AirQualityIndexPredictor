@@ -26,8 +26,11 @@ from pymongo.server_api import ServerApi
 warnings.filterwarnings("ignore")
 
 # ── Configuration ──────────────────────────────────────────────────────────
-from dotenv import load_dotenv
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # loads .env locally; in CI secrets are injected as env vars
+except ImportError:
+    pass  # python-dotenv not installed — env vars already set by CI
 
 MONGODB_URI = os.getenv("MONGODB_URI")
 FEATURE_DB  = os.getenv("MONGODB_DB")                  or "AQI_Project"

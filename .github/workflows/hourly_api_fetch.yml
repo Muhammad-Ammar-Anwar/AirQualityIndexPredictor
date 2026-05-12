@@ -2,7 +2,7 @@ name: AQI Hourly Pipeline
 
 on:
   schedule:
-    - cron: '10 * * * *'
+    - cron: "10 * * * *"   # Every hour at :10
   workflow_dispatch:
 
 jobs:
@@ -10,23 +10,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    env:
+      MONGODB_URI:        ${{ secrets.MONGODB_URI }}
+      MONGODB_DB:         ${{ secrets.MONGODB_DB }}
+      MONGODB_COLLECTION: ${{ secrets.MONGODB_COLLECTION }}
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install -r requirements.txt
+          python -c "from dotenv import load_dotenv; print('dotenv OK')"
 
       - name: Run hourly pipeline
-        env:
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
-          MONGODB_DB: ${{ secrets.MONGODB_DB }}
-          MONGODB_COLLECTION: ${{ secrets.MONGODB_COLLECTION }}
         run: python hourly_pipeline.py
