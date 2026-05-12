@@ -33,7 +33,7 @@ MONGODB_URI = os.getenv("MONGODB_URI")
 FEATURE_DB  = os.getenv("MONGODB_DB")                  or "AQI_Project"
 FEATURE_COL = os.getenv("MONGODB_FEATURES_COLLECTION") or "karachi_aqi_features"
 MODEL_DB    = os.getenv("MODEL_DB")  or "aqi_model_store"
-MODEL_COL   = os.getenv("MODEL_COL") or "pearls_72h_models"
+MODEL_COL   = os.getenv("MODEL_COL") or "AQI_72h_models"
 
 RAW_POLLUTANTS = {
     "pm2_5", "pm10", "ozone", "nitrogen_dioxide",
