@@ -42,8 +42,5 @@ jobs:
           python -c "from dotenv import load_dotenv; print('dotenv OK')"
           python -c "import lightgbm; print('lightgbm OK')"
 
-      - name: Fetch + engineer features (Complete Pipeline)
-        run: python Complete_Pipeline.py
-
       - name: Train + save models (Retrain Pipeline)
         run: python Model_Retrain_pipeline.py
