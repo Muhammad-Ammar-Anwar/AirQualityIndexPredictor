@@ -143,6 +143,8 @@ def fetch_range_data(latitude, longitude, start_date, end_date=None):
 
     if not all_data:
         return pd.DataFrame()
+    # Drop fully-empty columns before concat to avoid FutureWarning
+    all_data = [df.dropna(axis=1, how="all") for df in all_data]
     return pd.concat(all_data, ignore_index=True)
 
 
