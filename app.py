@@ -144,7 +144,7 @@ def _get_mongo_uri():
     if uri:
         return uri
     # 3. Hardcoded fallback — update this to your actual URI
-    return "mongodb+srv://mammaranver_db_user:g3vUgb82BZYMYGqK@10pearlsproject.opvdz3n.mongodb.net/AQI_Project"
+    return "Invalid URI"
 
 MONGODB_URI = _get_mongo_uri()
 FEATURE_DB  = os.getenv("MONGODB_DB", "AQI_Project")
