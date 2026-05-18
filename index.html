@@ -1123,7 +1123,8 @@ async function loadDashboard(){
     const fc = forecastData.forecasts || [];
     renderMilestones(fc, currentData.aqi);
     renderMiniChart(fc);
-    const msg = currentData.stale
+    const stale = currentData.stale || forecastData.stale;
+    const msg = stale
       ? `Dashboard updated (data from ${currentData.datetime})`
       : 'Dashboard updated';
     toast(fc.length ? msg : msg + ' — forecast unavailable');

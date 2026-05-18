@@ -26,8 +26,12 @@ LONGITUDE = 67.0011
 LOCATION = "Karachi"
 
 MONGODB_URI = os.getenv("MONGODB_URI")
-DB_NAME = os.getenv("MONGODB_DB") or "aqi_feature_store"
-COLLECTION_NAME = os.getenv("MONGODB_COLLECTION") or "karachi_aqi_features"
+DB_NAME = os.getenv("MONGODB_DB") or "AQI_Project"
+COLLECTION_NAME = (
+    os.getenv("MONGODB_FEATURES_COLLECTION")
+    or os.getenv("MONGODB_COLLECTION")
+    or "karachi_aqi_features"
+)
 
 WEATHER_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"

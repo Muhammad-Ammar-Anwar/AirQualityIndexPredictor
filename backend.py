@@ -344,6 +344,27 @@ def _fetch_latest_row(max_age_hours: Optional[int] = 48) -> tuple[Optional[dict]
     return docs[0], max_age_hours is not None
 
 
+def _fetch_feature_df(recent_days: int = 5, fallback_hours: int = 72) -> tuple[pd.DataFrame, bool]:
+    """Load hourly feature rows for ML inference. Returns (df, stale)."""
+    client = get_mongo_client()
+    col = client[FEATURE_DB][FEATURE_COL]
+    cutoff = datetime.utcnow() - timedelta(days=recent_days)
+    docs = list(col.find({"datetime": {"$gte": cutoff}}, {"_id": 0}).sort("datetime", 1))
+    if docs:
+        return pd.DataFrame(docs), False
+
+    cutoff_h = datetime.utcnow() - timedelta(hours=fallback_hours)
+    docs = list(col.find({"datetime": {"$gte": cutoff_h}}, {"_id": 0}).sort("datetime", 1))
+    if docs:
+        return pd.DataFrame(docs), True
+
+    docs = list(col.find({}, {"_id": 0}).sort("datetime", -1).limit(fallback_hours))
+    if not docs:
+        return pd.DataFrame(), False
+    df = pd.DataFrame(docs).sort_values("datetime").reset_index(drop=True)
+    return df, True
+
+
 @app.get("/")
 async def root():
     index = _ROOT / "index.html"
@@ -450,13 +471,10 @@ async def get_forecast():
     """72-hour AQI forecast from loaded ML models."""
     try:
         def _load():
-            cache  = load_models()
-            client = get_mongo_client()
-            col    = client[FEATURE_DB][FEATURE_COL]
-            cutoff = datetime.utcnow() - timedelta(days=5)
-            cursor = col.find({"datetime": {"$gte": cutoff}}, {"_id": 0}).sort("datetime", 1)
-            return cache, pd.DataFrame(list(cursor))
-        cache, df = await run_in_threadpool(_load)
+            cache = load_models()
+            df, stale = _fetch_feature_df()
+            return cache, df, stale
+        cache, df, stale = await run_in_threadpool(_load)
         if df.empty:
             raise HTTPException(404, "No feature data for inference")
 
@@ -465,7 +483,7 @@ async def get_forecast():
             df["datetime"] = df["datetime"].dt.tz_localize(None)
 
         forecasts = await generate_forecast(cache, df)
-        return {"forecasts": forecasts}
+        return {"forecasts": forecasts, "stale": stale}
     except HTTPException:
         raise
     except Exception as e:
