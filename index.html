@@ -453,24 +453,201 @@ select.styled {
   display:inline-block; width:16px; height:16px; border-radius:3px;
 }
 
+/* ── MOBILE HEADER ── */
+.mobile-header,
+.sidebar-backdrop { display:none; }
+
 /* ── RESPONSIVE ── */
 @media(max-width:1100px){
   .grid-4 { grid-template-columns:repeat(2,1fr); }
   .milestone-grid { grid-template-columns:repeat(3,1fr); }
   .weather-grid { grid-template-columns:repeat(2,1fr); }
 }
+
 @media(max-width:768px){
   :root{ --nav-w:0px; }
-  .sidebar{ transform:translateX(-240px); }
-  .grid-2,.grid-3 { grid-template-columns:1fr; }
-  .page { padding:20px; }
+
+  .mobile-header {
+    display:flex;
+    align-items:center;
+    gap:12px;
+    position:fixed;
+    top:0; left:0; right:0;
+    z-index:110;
+    height:56px;
+    padding:0 16px;
+    padding-top:env(safe-area-inset-top, 0);
+    min-height:calc(56px + env(safe-area-inset-top, 0));
+    background:rgba(6,11,20,0.92);
+    backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border);
+  }
+  .mobile-title {
+    flex:1;
+    font-size:1rem;
+    font-weight:700;
+    background:linear-gradient(135deg,#60a5fa,#a78bfa);
+    -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;
+    background-clip:text;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .menu-btn {
+    flex-shrink:0;
+    width:44px; height:44px;
+    display:flex; align-items:center; justify-content:center;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background:var(--surface2);
+    color:var(--text);
+    font-size:1.25rem;
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .menu-btn:active { background:rgba(59,130,246,.15); }
+
+  .sidebar-backdrop {
+    display:block;
+    position:fixed;
+    inset:0;
+    z-index:99;
+    background:rgba(0,0,0,.55);
+    opacity:0;
+    visibility:hidden;
+    transition:opacity .25s ease, visibility .25s;
+  }
+  .sidebar-backdrop.show {
+    opacity:1;
+    visibility:visible;
+  }
+
+  .sidebar {
+    width:min(280px, 88vw);
+    transform:translateX(-100%);
+    transition:transform .25s ease;
+    box-shadow:8px 0 40px rgba(0,0,0,.45);
+    padding-bottom:calc(24px + env(safe-area-inset-bottom, 0));
+  }
+  .sidebar.open { transform:translateX(0); }
+
+  .nav-item {
+    min-height:48px;
+    padding:12px 14px;
+  }
+
+  .main {
+    margin-left:0;
+    padding-top:calc(56px + env(safe-area-inset-top, 0) + 8px);
+  }
+
+  .page {
+    padding:16px 14px 28px;
+    padding-bottom:calc(28px + env(safe-area-inset-bottom, 0));
+  }
+
+  .page-header { margin-bottom:22px; }
+  .page-header h1 { font-size:1.35rem; line-height:1.25; }
+  .page-header p { font-size:0.85rem; }
+
+  .grid-2, .grid-3, .grid-4 { grid-template-columns:1fr; }
+  .grid-6 { grid-template-columns:repeat(2, 1fr); }
+  .milestone-grid { grid-template-columns:repeat(2, 1fr); }
+  .weather-grid { grid-template-columns:repeat(2, 1fr); }
+
+  .card { padding:18px 16px; }
+  .gauge-value { font-size:2.25rem; }
+  .gauge-dial { width:min(100%, 240px); }
+
+  .page .chart-wrap {
+    height:clamp(200px, 52vw, 280px) !important;
+    min-height:200px;
+  }
+
+  .range-row {
+    flex-direction:column;
+    align-items:stretch;
+    gap:8px;
+  }
+  .range-row select.styled { width:100%; }
+
+  .refresh-btn {
+    width:calc(100% - 32px);
+    min-height:48px;
+  }
+
+  .data-table { font-size:0.78rem; }
+  .data-table th, .data-table td { padding:8px 10px; }
+
+  .card > div[style*="overflow-x"] {
+    -webkit-overflow-scrolling:touch;
+    margin:0 -4px;
+    padding:0 4px;
+  }
+
+  .heatmap-wrap {
+    align-items:stretch;
+    padding:8px 0;
+    margin:0 -6px;
+  }
+  .heatmap-table td, .heatmap-table th {
+    width:30px; height:28px;
+    font-size:0.65rem;
+  }
+  .heatmap-table th.row-label {
+    width:40px;
+    font-size:0.68rem;
+    padding-right:6px;
+  }
+  .heatmap-legend {
+    justify-content:flex-start;
+    font-size:0.68rem;
+    gap:8px 10px;
+  }
+
+  #toast {
+    left:14px; right:14px; bottom:calc(16px + env(safe-area-inset-bottom, 0));
+    max-width:none;
+  }
+
+  body.sidebar-open { overflow:hidden; }
+}
+
+@media(max-width:480px){
+  .page-header h1 { font-size:1.2rem; }
+  .milestone-grid { grid-template-columns:repeat(2, 1fr); gap:8px; }
+  .milestone-chip { padding:10px 8px; }
+  .milestone-aqi { font-size:1.15rem; }
+  .grid-6 { grid-template-columns:1fr 1fr; gap:10px; }
+  .metric-card { padding:14px 12px; }
+  .metric-value { font-size:1.35rem; }
+  .weather-grid { grid-template-columns:1fr 1fr; gap:10px; }
+  .band-card { padding:16px; }
+  .heatmap-table td, .heatmap-table th {
+    width:26px; height:24px;
+    font-size:0.58rem;
+  }
+  .heatmap-table th.row-label { width:34px; }
+  .arch-table td:first-child { width:auto; display:block; padding-bottom:2px; }
+  .arch-table tr { display:block; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.04); }
+  .arch-table td { display:block; border:none; padding:2px 14px; }
 }
 </style>
 </head>
 <body>
 
+<div class="sidebar-backdrop" id="sidebar-backdrop" aria-hidden="true"></div>
+
+<header class="mobile-header" id="mobile-header">
+  <button type="button" class="menu-btn" id="menu-btn" aria-label="Open navigation menu" aria-expanded="false">☰</button>
+  <span class="mobile-title" id="mobile-title">AQI SeekAI</span>
+  <button type="button" class="menu-btn" id="mobile-refresh-btn" aria-label="Refresh data">↻</button>
+</header>
+
 <!-- SIDEBAR -->
-<nav class="sidebar">
+<nav class="sidebar" id="sidebar" aria-label="Main navigation">
   <div class="sidebar-logo">
     <div class="logo-title">AQI SeekAI</div>
     <div class="logo-sub">Karachi Air Intelligence</div>
@@ -835,6 +1012,35 @@ function destroyChart(id){
   }
 }
 
+// ── MOBILE NAV ───────────────────────────────────────────────────────────────
+const sidebar = document.getElementById('sidebar');
+const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+const menuBtn = document.getElementById('menu-btn');
+const mobileTitle = document.getElementById('mobile-title');
+
+const PAGE_TITLES = {
+  dashboard: 'Dashboard',
+  forecast: '72h Forecast',
+  historical: 'Historical',
+  eda: 'Analytics',
+  model: 'Model Info',
+};
+
+function setSidebarOpen(open){
+  sidebar.classList.toggle('open', open);
+  sidebarBackdrop.classList.toggle('show', open);
+  document.body.classList.toggle('sidebar-open', open);
+  menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  menuBtn.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
+  menuBtn.textContent = open ? '✕' : '☰';
+}
+
+function closeSidebar(){ setSidebarOpen(false); }
+
+menuBtn.addEventListener('click', ()=> setSidebarOpen(!sidebar.classList.contains('open')));
+sidebarBackdrop.addEventListener('click', closeSidebar);
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape') closeSidebar(); });
+
 // ── NAV ──────────────────────────────────────────────────────────────────────
 document.querySelectorAll('.nav-item').forEach(el=>{
   el.addEventListener('click',()=>{
@@ -843,11 +1049,19 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     const pg = el.dataset.page;
     document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
     document.getElementById('page-'+pg).classList.add('active');
+    if(mobileTitle && PAGE_TITLES[pg]) mobileTitle.textContent = PAGE_TITLES[pg];
+    closeSidebar();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     if(pg==='forecast'  && forecastData)  renderForecastPage();
     if(pg==='historical') loadHistorical(false);
     if(pg==='eda') loadEDA();
     if(pg==='model'     && !modelData)    loadModel();
   });
+});
+
+document.getElementById('mobile-refresh-btn').addEventListener('click', ()=>{
+  document.getElementById('refresh-btn').click();
+  closeSidebar();
 });
 
 // ── TOAST ────────────────────────────────────────────────────────────────────
@@ -1419,6 +1633,15 @@ document.getElementById('refresh-btn').addEventListener('click',async()=>{
   forecastData = null; historicalData = null; histDaysLoaded = null; edaData = null; modelData = null;
   await loadDashboard();
   btn.classList.remove('spinning');
+});
+
+// Resize charts on orientation / viewport change
+let resizeTimer;
+window.addEventListener('resize', ()=>{
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(()=>{
+    Object.values(charts).forEach(c=>{ try{ c.resize(); }catch(_){} });
+  }, 150);
 });
 
 // ── BOOT ─────────────────────────────────────────────────────────────────────
