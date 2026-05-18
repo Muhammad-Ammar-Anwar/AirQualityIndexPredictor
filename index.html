@@ -415,14 +415,43 @@ select.styled {
   cursor:pointer; outline:none;
 }
 
-/* ── CORR LEGEND ── */
-.heatmap-wrap { overflow-x:auto; }
-.heatmap-table { border-collapse:collapse; font-size:0.7rem; }
-.heatmap-table td, .heatmap-table th {
-  width:32px; height:32px; text-align:center;
-  border:1px solid rgba(255,255,255,.04);
+/* ── HEATMAP ── */
+.heatmap-wrap {
+  overflow-x:auto;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:12px 16px 8px;
 }
-.heatmap-table th { background:var(--surface2); color:var(--muted); font-weight:600; }
+.heatmap-table {
+  border-collapse:collapse;
+  font-size:0.75rem;
+  margin:0 auto;
+}
+.heatmap-table td, .heatmap-table th {
+  width:36px; height:34px; text-align:center;
+  border:1px solid rgba(255,255,255,.06);
+  font-size:0.72rem; font-weight:600;
+  font-variant-numeric: tabular-nums;
+}
+.heatmap-table th {
+  background:var(--surface2); color:var(--muted); font-weight:600;
+}
+.heatmap-table th.row-label {
+  width:52px; text-align:right; padding-right:10px;
+  font-size:0.78rem;
+}
+.heatmap-table td.cell-empty { background:rgba(255,255,255,.03); color:var(--muted); }
+.heatmap-legend {
+  display:flex; align-items:center; justify-content:center;
+  gap:10px 14px; flex-wrap:wrap;
+  margin-top:18px; font-size:0.75rem; color:var(--muted);
+  max-width:100%;
+}
+.heatmap-legend span { display:inline-flex; align-items:center; gap:6px; }
+.heatmap-legend i {
+  display:inline-block; width:16px; height:16px; border-radius:3px;
+}
 
 /* ── RESPONSIVE ── */
 @media(max-width:1100px){
@@ -459,7 +488,7 @@ select.styled {
       <span class="nav-icon">📊</span> Historical Data
     </div>
     <div class="nav-item" data-page="eda">
-      <span class="nav-icon">🔬</span> EDA & Analytics
+      <span class="nav-icon">🔬</span> Analytics
     </div>
     <div class="nav-item" data-page="model">
       <span class="nav-icon">🤖</span> Model Info
@@ -488,7 +517,7 @@ select.styled {
   <div class="page active" id="page-dashboard">
     <div class="page-header">
       <h1>Karachi Air Quality Dashboard</h1>
-      <p>Real-time AQI monitoring & 72-hour ML forecast powered by SeekAI</p>
+      <p>Real time AQI monitoring & 72 hours ML forecast powered by Ammar</p>
     </div>
 
     <div class="grid-2" style="margin-bottom:20px">
@@ -656,8 +685,16 @@ select.styled {
   <!-- EDA PAGE -->
   <div class="page" id="page-eda">
     <div class="page-header">
-      <h1>Exploratory Data Analysis</h1>
-      <p>Statistical insights into Karachi's air quality patterns</p>
+      <h1>Air Quality Analytics</h1>
+      <p id="eda-subtitle">Last 30 days of Karachi observations</p>
+    </div>
+
+    <div class="grid-6" id="eda-stats" style="margin-bottom:20px">
+      <div class="metric-card skeleton" style="height:80px"></div>
+      <div class="metric-card skeleton" style="height:80px"></div>
+      <div class="metric-card skeleton" style="height:80px"></div>
+      <div class="metric-card skeleton" style="height:80px"></div>
+      <div class="metric-card skeleton" style="height:80px"></div>
     </div>
 
     <div class="grid-2" style="margin-bottom:20px">
@@ -677,9 +714,7 @@ select.styled {
 
     <div class="card" style="margin-bottom:20px">
       <div class="card-title">🗓 AQI Heatmap — Day × Hour</div>
-      <div class="chart-wrap" style="height:260px">
-        <canvas id="chart-heatmap"></canvas>
-      </div>
+      <div id="heatmap-grid" class="heatmap-wrap"></div>
     </div>
 
     <div class="card">
@@ -810,7 +845,7 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     document.getElementById('page-'+pg).classList.add('active');
     if(pg==='forecast'  && forecastData)  renderForecastPage();
     if(pg==='historical') loadHistorical(false);
-    if(pg==='eda'       && !edaData)      loadEDA();
+    if(pg==='eda') loadEDA();
     if(pg==='model'     && !modelData)    loadModel();
   });
 });
@@ -1184,14 +1219,36 @@ function median(arr){
 }
 
 // ── EDA PAGE ─────────────────────────────────────────────────────────────────
+const EDA_DAYS = 30;
+
 async function loadEDA(){
   try {
-    edaData = await api('/api/eda');
+    edaData = await api(`/api/eda?days=${EDA_DAYS}`);
     renderEDA(edaData);
-  } catch(e){ toast('EDA load failed: '+e.message,false); }
+  } catch(e){ toast('Analytics load failed: '+e.message,false); }
 }
 
 function renderEDA(d){
+  const s = d.summary || {};
+  const n = s.count ?? 0;
+  const sub = document.getElementById('eda-subtitle');
+  if(sub) sub.textContent = n
+    ? `Last ${EDA_DAYS} days · ${n.toLocaleString()} hourly observations`
+    : `Last ${EDA_DAYS} days of Karachi observations`;
+
+  const stats = [
+    ['Mean AQI', s.mean != null ? s.mean.toFixed(1) : '—'],
+    ['Median AQI', s.median != null ? s.median.toFixed(1) : '—'],
+    ['Peak AQI', s.max != null ? Math.round(s.max) : '—'],
+    ['Min AQI', s.min != null ? Math.round(s.min) : '—'],
+    ['Observations', n ? n.toLocaleString() : '—'],
+  ];
+  document.getElementById('eda-stats').innerHTML = stats.map(([lbl,val])=>`
+    <div class="metric-card">
+      <div class="metric-label">${lbl}</div>
+      <div class="metric-value">${val}</div>
+    </div>`).join('');
+
   // Category pie
   destroyChart('cat-pie');
   const catColors = {
@@ -1228,7 +1285,7 @@ function renderEDA(d){
       label:'Temp vs AQI',
       data:scatter,
       backgroundColor: scatter.map(p=>aqiColor(p.y)+'88'),
-      pointRadius:3,
+      pointRadius: scatter.length > 150 ? 2 : 4,
     }]},
     options:{
       ...DARK,
@@ -1239,36 +1296,36 @@ function renderEDA(d){
     },
   });
 
-  // Heatmap (as matrix chart using bar with grouped)
+  // Heatmap grid (day × hour average AQI)
   const dowOrder = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   const heatRows = (d.heatmap||[]).sort((a,b)=>dowOrder.indexOf(a.day)-dowOrder.indexOf(b.day));
   const hours = Array.from({length:24},(_,i)=>i);
-
-  // Flatten heatmap into a scatter of circles or use a custom rendering
+  const heatVal = (row, h) => row.hours[h] ?? row.hours[String(h)];
   destroyChart('heatmap');
-  const heatDatasets = heatRows.map((row,ri)=>({
-    label: row.day.slice(0,3),
-    data: hours.map(h=>({ x:h, y:ri, r: 12 })),
-    backgroundColor: hours.map(h=>{
-      const v = row.hours[h];
-      return v!=null ? aqiColor(v)+'bb' : 'rgba(255,255,255,0.04)';
-    }),
-  }));
-  const ctx3 = document.getElementById('chart-heatmap').getContext('2d');
-  charts['heatmap'] = new Chart(ctx3,{
-    type:'bubble',
-    data:{ datasets:heatDatasets },
-    options:{
-      ...DARK,
-      plugins:{ ...DARK.plugins, legend:{ display:false } },
-      scales:{
-        x:{ ...DARK.scales.x, title:{display:true,text:'Hour of Day',color:'#5a7093'},
-            min:-0.5, max:23.5, ticks:{stepSize:4,callback:v=>v+':00'} },
-        y:{ ...DARK.scales.y, min:-0.5, max:heatRows.length-0.5,
-            ticks:{callback:i=>heatRows[i]?.day.slice(0,3)??''} },
-      },
-    },
-  });
+
+  const hourHdr = hours.map(h=>`<th>${h}</th>`).join('');
+  const body = heatRows.map(row=>{
+    const cells = hours.map(h=>{
+      const v = heatVal(row, h);
+      if(v==null) return '<td class="cell-empty">—</td>';
+      const c = aqiColor(v);
+      const txt = v >= 100 ? Math.round(v) : v.toFixed(0);
+      return `<td style="background:${c}33;color:${c}" title="${row.day} ${h}:00 — AQI ${v.toFixed(1)}">${txt}</td>`;
+    }).join('');
+    return `<tr><th class="row-label">${row.day.slice(0,3)}</th>${cells}</tr>`;
+  }).join('');
+
+  const legend = AQI_LEVELS.map(([lo,hi,lbl,c])=>
+    `<span><i style="background:${c}"></i>${lbl}</span>`
+  ).join('');
+
+  document.getElementById('heatmap-grid').innerHTML = heatRows.length ? `
+    <table class="heatmap-table">
+      <thead><tr><th></th>${hourHdr}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+    <div class="heatmap-legend">${legend}</div>
+  ` : '<p style="color:var(--muted);padding:24px;text-align:center">No heatmap data for this period</p>';
 
   // Dominant pollutant
   destroyChart('dom-pol');
