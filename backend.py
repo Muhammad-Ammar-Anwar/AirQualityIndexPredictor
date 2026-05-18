@@ -1,21 +1,26 @@
 """
 AQI SeekAI — FastAPI Backend
-Run with: uvicorn main:app --reload --port 8000
+Run with: uvicorn backend:app --reload --port 8000
 """
 
 import os
+from pathlib import Path
 import base64
 import pickle
 import warnings
 from datetime import datetime, timedelta
 from typing import Optional
 
+import asyncio
+
+import httpx
 import numpy as np
 import pandas as pd
 import pytz
-import requests as http_requests
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from pydantic import BaseModel
@@ -23,15 +28,25 @@ from pydantic import BaseModel
 warnings.filterwarnings("ignore")
 
 # ── env / config ──────────────────────────────────────────────────────────────
+_ROOT = Path(__file__).resolve().parent
+_ENV_FILE = _ROOT / ".env"
+
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(_ENV_FILE)
 except ImportError:
     pass
 
-MONGODB_URI  = os.getenv("MONGODB_URI", "YOUR_MONGODB_URI_HERE")
-FEATURE_DB   = os.getenv("MONGODB_DB",                   "AQI_Project")
-FEATURE_COL  = os.getenv("MONGODB_FEATURES_COLLECTION",  "karachi_aqi_features")
+def _require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value or value.strip() in {"", "YOUR_MONGODB_URI_HERE"}:
+        hint = f"Set {name} in {_ENV_FILE}" if _ENV_FILE.exists() else f"Create {_ENV_FILE} with {name}"
+        raise RuntimeError(hint)
+    return value.strip()
+
+MONGODB_URI  = _require_env("MONGODB_URI")
+FEATURE_DB   = os.getenv("MONGODB_DB",                  "AQI_Project")
+FEATURE_COL  = os.getenv("MONGODB_FEATURES_COLLECTION", "karachi_aqi_features")
 MODEL_DB     = os.getenv("MODEL_DB",  "aqi_model_store")
 MODEL_COL    = os.getenv("MODEL_COL", "AQI_72h_model")
 
@@ -162,7 +177,7 @@ def load_models() -> dict:
     )
     return _model_cache
 
-def fetch_weather_forecast(feature_cols, fc_indices_map, main_scaler) -> dict:
+async def fetch_weather_forecast(feature_cols, fc_indices_map, main_scaler) -> dict:
     sample_fci = next(
         (v for v in fc_indices_map.values() if isinstance(v, list) and len(v) > 0), []
     )
@@ -175,14 +190,14 @@ def fetch_weather_forecast(feature_cols, fc_indices_map, main_scaler) -> dict:
         return {h: np.zeros(len(sample_fci), dtype=np.float32) for h in KEY_HORIZONS}
 
     try:
-        resp = http_requests.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params={"latitude": LATITUDE, "longitude": LONGITUDE,
-                    "hourly": ",".join(api_vars),
-                    "timezone": "UTC", "forecast_days": 4},
-            timeout=15,
-        )
-        resp.raise_for_status()
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={"latitude": LATITUDE, "longitude": LONGITUDE,
+                        "hourly": ",".join(api_vars),
+                        "timezone": "UTC", "forecast_days": 4},
+            )
+            resp.raise_for_status()
         data  = resp.json()["hourly"]
         times = pd.to_datetime(data["time"], utc=True).tz_localize(None)
         now   = pd.Timestamp.utcnow().replace(minute=0, second=0, microsecond=0, tzinfo=None)
@@ -206,7 +221,7 @@ def fetch_weather_forecast(feature_cols, fc_indices_map, main_scaler) -> dict:
     except Exception:
         return {h: np.zeros(len(sample_fci), dtype=np.float32) for h in KEY_HORIZONS}
 
-def generate_forecast(cache: dict, df: pd.DataFrame) -> list:
+async def generate_forecast(cache: dict, df: pd.DataFrame) -> list:
     if df.empty:
         return []
     models, valid_indices, fc_indices_map, main_scaler, feature_cols = (
@@ -226,7 +241,7 @@ def generate_forecast(cache: dict, df: pd.DataFrame) -> list:
     X_scaled = main_scaler.transform(full_vec)[0]
 
     has_fc  = any(isinstance(v, list) and len(v) > 0 for v in fc_indices_map.values())
-    live_fc = fetch_weather_forecast(feature_cols, fc_indices_map, main_scaler) if has_fc else {}
+    live_fc = await fetch_weather_forecast(feature_cols, fc_indices_map, main_scaler) if has_fc else {}
 
     last_dt  = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
     forecasts = []
@@ -283,7 +298,22 @@ def generate_forecast(cache: dict, df: pd.DataFrame) -> list:
     return forecasts
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
-app = FastAPI(title="AQI SeekAI API", version="1.0.0")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Preload models and warm up MongoDB connection at startup."""
+    loop = asyncio.get_event_loop()
+    try:
+        print("Preloading MongoDB connection and ML models...")
+        await loop.run_in_executor(None, get_mongo_client)
+        await loop.run_in_executor(None, load_models)
+        print("Models and DB ready.")
+    except Exception as e:
+        print(f"Startup preload failed (will retry on first request): {e}")
+    yield
+
+app = FastAPI(title="AQI SeekAI API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -295,23 +325,45 @@ app.add_middleware(
 
 # ── routes ────────────────────────────────────────────────────────────────────
 
+def _fetch_latest_row(max_age_hours: Optional[int] = 48) -> tuple[Optional[dict], bool]:
+    """Return (row, stale). Falls back to the newest row if nothing within max_age_hours."""
+    client = get_mongo_client()
+    col = client[FEATURE_DB][FEATURE_COL]
+    if max_age_hours is not None:
+        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+        docs = list(
+            col.find({"datetime": {"$gte": cutoff}}, {"_id": 0})
+            .sort("datetime", -1)
+            .limit(1)
+        )
+        if docs:
+            return docs[0], False
+    docs = list(col.find({}, {"_id": 0}).sort("datetime", -1).limit(1))
+    if not docs:
+        return None, False
+    return docs[0], max_age_hours is not None
+
+
+@app.get("/")
+async def root():
+    index = _ROOT / "index.html"
+    if not index.is_file():
+        raise HTTPException(404, "index.html not found")
+    return FileResponse(index)
+
+
 @app.get("/health")
-def health():
+async def health():
     return {"status": "ok", "time_pkt": get_pkt_now().isoformat()}
 
 
 @app.get("/api/current")
-def get_current():
+async def get_current():
     """Latest AQI reading + weather snapshot."""
     try:
-        client = get_mongo_client()
-        col    = client[FEATURE_DB][FEATURE_COL]
-        cutoff = datetime.utcnow() - timedelta(hours=6)
-        cursor = col.find({"datetime": {"$gte": cutoff}}, {"_id": 0}).sort("datetime", -1).limit(1)
-        docs   = list(cursor)
-        if not docs:
-            raise HTTPException(404, "No recent data")
-        row = docs[0]
+        row, stale = await run_in_threadpool(_fetch_latest_row)
+        if row is None:
+            raise HTTPException(404, "No data in feature collection")
         aqi = float(row.get("us_aqi", 0))
 
         weather_keys = [
@@ -342,6 +394,7 @@ def get_current():
             "color":           aqi_color(aqi),
             "datetime":        str(row.get("datetime", "")),
             "pkt_now":         get_pkt_now().isoformat(),
+            "stale":           stale,
             "weather":         weather,
             "sub_aqi":         sub_aqi,
             "pollutants":      pollutants,
@@ -354,14 +407,16 @@ def get_current():
 
 
 @app.get("/api/historical")
-def get_historical(days: int = Query(5, ge=1, le=30)):
+async def get_historical(days: int = Query(5, ge=1, le=30)):
     """Recent hourly AQI + weather rows."""
     try:
-        client = get_mongo_client()
-        col    = client[FEATURE_DB][FEATURE_COL]
-        cutoff = datetime.utcnow() - timedelta(days=days)
-        cursor = col.find({"datetime": {"$gte": cutoff}}, {"_id": 0}).sort("datetime", 1)
-        df     = pd.DataFrame(list(cursor))
+        def _query():
+            client = get_mongo_client()
+            col    = client[FEATURE_DB][FEATURE_COL]
+            cutoff = datetime.utcnow() - timedelta(days=days)
+            cursor = col.find({"datetime": {"$gte": cutoff}}, {"_id": 0}).sort("datetime", 1)
+            return pd.DataFrame(list(cursor))
+        df = await run_in_threadpool(_query)
         if df.empty:
             return {"rows": []}
 
@@ -391,15 +446,17 @@ def get_historical(days: int = Query(5, ge=1, le=30)):
 
 
 @app.get("/api/forecast")
-def get_forecast():
+async def get_forecast():
     """72-hour AQI forecast from loaded ML models."""
     try:
-        cache  = load_models()
-        client = get_mongo_client()
-        col    = client[FEATURE_DB][FEATURE_COL]
-        cutoff = datetime.utcnow() - timedelta(days=5)
-        cursor = col.find({"datetime": {"$gte": cutoff}}, {"_id": 0}).sort("datetime", 1)
-        df     = pd.DataFrame(list(cursor))
+        def _load():
+            cache  = load_models()
+            client = get_mongo_client()
+            col    = client[FEATURE_DB][FEATURE_COL]
+            cutoff = datetime.utcnow() - timedelta(days=5)
+            cursor = col.find({"datetime": {"$gte": cutoff}}, {"_id": 0}).sort("datetime", 1)
+            return cache, pd.DataFrame(list(cursor))
+        cache, df = await run_in_threadpool(_load)
         if df.empty:
             raise HTTPException(404, "No feature data for inference")
 
@@ -407,7 +464,7 @@ def get_forecast():
         if df["datetime"].dt.tz is not None:
             df["datetime"] = df["datetime"].dt.tz_localize(None)
 
-        forecasts = generate_forecast(cache, df)
+        forecasts = await generate_forecast(cache, df)
         return {"forecasts": forecasts}
     except HTTPException:
         raise
@@ -416,14 +473,16 @@ def get_forecast():
 
 
 @app.get("/api/eda")
-def get_eda(days: int = Query(5, ge=1, le=30)):
+async def get_eda(days: int = Query(5, ge=1, le=30)):
     """EDA summary statistics."""
     try:
-        client = get_mongo_client()
-        col    = client[FEATURE_DB][FEATURE_COL]
-        cutoff = datetime.utcnow() - timedelta(days=days)
-        cursor = col.find({"datetime": {"$gte": cutoff}}, {"_id": 0}).sort("datetime", 1)
-        df     = pd.DataFrame(list(cursor))
+        def _query():
+            client = get_mongo_client()
+            col    = client[FEATURE_DB][FEATURE_COL]
+            cutoff = datetime.utcnow() - timedelta(days=days)
+            cursor = col.find({"datetime": {"$gte": cutoff}}, {"_id": 0}).sort("datetime", 1)
+            return pd.DataFrame(list(cursor))
+        df = await run_in_threadpool(_query)
         if df.empty:
             return {}
 
@@ -485,10 +544,10 @@ def get_eda(days: int = Query(5, ge=1, le=30)):
 
 
 @app.get("/api/model-info")
-def get_model_info():
+async def get_model_info():
     """Model architecture & per-horizon metrics."""
     try:
-        cache         = load_models()
+        cache = await run_in_threadpool(load_models)
         training_logs = cache["training_logs"]
         feature_cols  = cache["feature_cols"]
 
@@ -523,4 +582,3 @@ def get_model_info():
         }
     except Exception as e:
         raise HTTPException(500, str(e))
-

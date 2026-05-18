@@ -1,0 +1,1373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AQI SeekAI — Karachi</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/3.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+:root {
+  --bg:        #060b14;
+  --surface:   #0d1524;
+  --surface2:  #111d30;
+  --border:    rgba(99,179,237,0.10);
+  --text:      #e8edf5;
+  --muted:     #5a7093;
+  --primary:   #3b82f6;
+  --secondary: #8b5cf6;
+  --accent:    #06b6d4;
+  --success:   #10b981;
+  --warning:   #f59e0b;
+  --danger:    #ef4444;
+  --short:     #3b82f6;
+  --medium:    #f59e0b;
+  --long:      #8b5cf6;
+  --nav-w:     240px;
+  --radius:    14px;
+  --font:      'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+*, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+
+html { scroll-behavior:smooth; }
+
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, .logo-title, .page-header h1 {
+  font-family: var(--font);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* ── NOISE OVERLAY ── */
+body::before {
+  content:'';
+  position:fixed;
+  inset:0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  pointer-events:none;
+  z-index:0;
+}
+
+/* ── SIDEBAR ── */
+.sidebar {
+  position:fixed; left:0; top:0; bottom:0;
+  width:var(--nav-w);
+  background: linear-gradient(180deg, #0a1220 0%, #080f1c 100%);
+  border-right:1px solid var(--border);
+  display:flex; flex-direction:column;
+  z-index:100;
+  padding:0 0 24px;
+}
+
+.sidebar-logo {
+  padding:28px 24px 20px;
+  border-bottom:1px solid var(--border);
+}
+.logo-title {
+  font-size:1.35rem; font-weight:700;
+  background:linear-gradient(135deg,#60a5fa,#a78bfa);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+  background-clip:text;
+  letter-spacing:-0.01em;
+}
+.logo-sub {
+  font-size:0.72rem; color:var(--muted);
+  margin-top:3px; letter-spacing:0.04em;
+  text-transform:uppercase;
+}
+
+.nav-group { padding:20px 12px 0; flex:1; }
+.nav-label {
+  font-size:0.65rem; color:var(--muted);
+  text-transform:uppercase; letter-spacing:0.1em;
+  padding:0 12px; margin-bottom:8px;
+}
+
+.nav-item {
+  display:flex; align-items:center; gap:10px;
+  padding:10px 14px; border-radius:10px;
+  cursor:pointer; transition:all .2s;
+  font-size:0.875rem; font-weight:500;
+  color:var(--muted); margin-bottom:2px;
+  border:1px solid transparent;
+}
+.nav-item .nav-icon { font-size:1rem; width:20px; text-align:center; }
+.nav-item:hover { color:var(--text); background:rgba(59,130,246,.08); }
+.nav-item.active {
+  color:var(--primary);
+  background:rgba(59,130,246,.12);
+  border-color:rgba(59,130,246,.2);
+}
+
+.sidebar-footer {
+  padding:16px 20px 0;
+  border-top:1px solid var(--border);
+  font-size:0.75rem; color:var(--muted); line-height:1.9;
+}
+.sidebar-footer strong { color:#94a3b8; }
+
+.refresh-btn {
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  width:calc(100% - 40px); margin:14px 20px 0;
+  padding:9px 16px; border-radius:10px;
+  background:rgba(59,130,246,.12); border:1px solid rgba(59,130,246,.25);
+  color:var(--primary); font-family:var(--font);
+  font-size:0.82rem; font-weight:500; cursor:pointer;
+  transition:all .2s;
+}
+.refresh-btn:hover { background:rgba(59,130,246,.2); }
+.refresh-btn.spinning .spin-icon { animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ── MAIN CONTENT ── */
+.main {
+  margin-left:var(--nav-w);
+  min-height:100vh;
+  position:relative; z-index:1;
+}
+
+.page { display:none; padding:36px 40px; }
+.page.active { display:block; animation:fadeIn .3s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+/* ── PAGE HEADER ── */
+.page-header { margin-bottom:32px; }
+.page-header h1 {
+  font-size:1.75rem; font-weight:700;
+  color:var(--text);
+}
+.page-header p {
+  margin-top:6px; font-size:0.925rem;
+  color:var(--muted); font-weight:400;
+}
+
+/* ── GRID ── */
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+.grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+.grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+.grid-6 { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; }
+
+/* ── CARD ── */
+.card {
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:24px;
+  transition:border-color .2s;
+}
+.card:hover { border-color:rgba(99,179,237,0.18); }
+.card-title {
+  font-size:0.78rem; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.07em;
+  color:var(--muted); margin-bottom:16px;
+  display:flex; align-items:center; gap:7px;
+}
+
+/* ── AQI GAUGE ── */
+.gauge-wrap {
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  padding:8px 0 4px;
+  width:100%;
+}
+.gauge-dial {
+  width:min(100%, 280px);
+  margin:0 auto;
+}
+.gauge-dial svg {
+  display:block;
+  width:100%;
+  height:auto;
+  overflow:visible;
+}
+.gauge-readout {
+  text-align:center;
+  margin-top:4px;
+  padding-top:12px;
+  width:100%;
+}
+.gauge-value,
+.metric-value,
+.weather-val,
+.poll-val,
+.milestone-aqi,
+.milestone-delta,
+.band-stat-val,
+.td-num {
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: 'tnum' 1, 'lnum' 1;
+  letter-spacing: 0.01em;
+  font-variant-ligatures: none;
+}
+.gauge-value {
+  font-size:2.75rem; font-weight:700;
+  line-height:1.1;
+  margin:0;
+}
+.gauge-label {
+  font-size:0.9rem; font-weight:600;
+  margin-top:6px;
+  text-align:center;
+}
+.gauge-badge {
+  display:inline-block;
+  margin-top:10px;
+  padding:6px 18px; border-radius:999px;
+  font-size:0.8rem; font-weight:600;
+  letter-spacing:0.02em;
+}
+.gauge-time {
+  font-size:0.75rem;
+  color:var(--muted);
+  margin-top:10px;
+  font-weight:400;
+}
+
+/* ── METRIC CARD ── */
+.metric-card {
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:18px 20px;
+  transition:all .2s;
+}
+.metric-card:hover { border-color:rgba(99,179,237,.2); transform:translateY(-2px); }
+.metric-label {
+  font-size:0.72rem; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.08em;
+  color:var(--muted); margin-bottom:8px;
+}
+.metric-value {
+  font-size:1.55rem;
+  font-weight:600;
+}
+.metric-sub { font-size:0.75rem; color:var(--muted); margin-top:3px; }
+
+/* ── WEATHER CARDS ── */
+.weather-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+.weather-card {
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:16px 12px;
+  text-align:center;
+  transition:all .2s;
+}
+.weather-card:hover { border-color:rgba(99,179,237,.2); }
+.weather-icon { font-size:1.4rem; margin-bottom:6px; }
+.weather-name {
+  font-size:0.65rem; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.08em;
+  color:var(--muted); margin-bottom:4px;
+}
+.weather-val {
+  font-size:1.05rem; font-weight:600;
+}
+
+/* ── POLLUTANT BAR ── */
+.poll-bars { display:flex; flex-direction:column; gap:12px; }
+.poll-row { display:flex; align-items:center; gap:14px; min-height:28px; }
+.poll-name { width:64px; font-size:0.8rem; color:var(--muted); font-weight:500; flex-shrink:0; }
+.poll-bar-wrap {
+  flex:1; min-width:0;
+  background:rgba(255,255,255,.06); border-radius:999px;
+  height:10px; overflow:hidden;
+}
+.poll-bar { height:100%; border-radius:999px; transition:width 1s cubic-bezier(.4,0,.2,1); min-width:0; }
+.poll-val {
+  width:44px; flex-shrink:0;
+  text-align:right; font-size:0.8rem; font-weight:600;
+}
+
+/* ── CHART CONTAINERS ── */
+.chart-wrap { position:relative; }
+.chart-wrap canvas { border-radius:8px; }
+
+/* ── MILESTONE CHIPS ── */
+.milestone-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+.milestone-chip {
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:14px 10px; text-align:center;
+  transition:all .2s;
+}
+.milestone-chip:hover { border-color:rgba(99,179,237,.2); transform:translateY(-2px); }
+.milestone-h { font-size:0.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; }
+.milestone-aqi { font-size:1.35rem; font-weight:600; line-height:1.2; }
+.milestone-delta { font-size:0.72rem; margin-top:4px; font-weight:500; }
+
+/* ── SECTION DIVIDER ── */
+.divider {
+  height:1px;
+  background:linear-gradient(90deg,transparent,var(--border),transparent);
+  margin:28px 0;
+}
+.section-title {
+  font-size:0.78rem; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.07em;
+  color:var(--muted); margin-bottom:16px;
+  display:flex; align-items:center; gap:8px;
+}
+
+/* ── TABLE ── */
+.data-table { width:100%; border-collapse:collapse; font-size:0.83rem; }
+.data-table th {
+  text-align:left; padding:10px 14px;
+  font-size:0.68rem; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.07em;
+  color:var(--muted);
+  border-bottom:1px solid var(--border);
+  background:var(--surface2);
+}
+.data-table th:first-child { border-radius:8px 0 0 0; }
+.data-table th:last-child  { border-radius:0 8px 0 0; }
+.data-table td {
+  padding:10px 14px;
+  border-bottom:1px solid rgba(255,255,255,.04);
+}
+.data-table tr:hover td { background:rgba(255,255,255,.02); }
+.badge {
+  display:inline-block;
+  padding:3px 10px; border-radius:999px;
+  font-size:0.7rem; font-weight:600;
+  letter-spacing:0.03em;
+}
+
+/* ── BAND CARDS ── */
+.band-card {
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:20px;
+}
+.band-header {
+  display:flex; align-items:center; gap:8px;
+  margin-bottom:14px; font-weight:600; font-size:0.9rem;
+}
+.band-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.band-stat { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.band-stat-label { font-size:0.75rem; color:var(--muted); }
+.band-stat-val { font-size:1.05rem; font-weight:600; }
+
+/* ── MODEL INFO ── */
+.arch-table { width:100%; border-collapse:collapse; }
+.arch-table td { padding:10px 14px; border-bottom:1px solid rgba(255,255,255,.04); font-size:0.85rem; }
+.arch-table td:first-child { color:var(--muted); width:220px; font-size:0.78rem; }
+.feature-tag {
+  display:inline-block;
+  background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.15);
+  border-radius:6px; padding:3px 8px;
+  font-size:0.72rem; font-family:var(--font);
+  color:#93c5fd; margin:2px;
+}
+
+/* ── TOAST ── */
+#toast {
+  position:fixed; bottom:24px; right:24px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:12px; padding:12px 20px;
+  font-size:0.83rem; color:var(--text);
+  box-shadow:0 8px 32px rgba(0,0,0,.5);
+  transform:translateY(80px); opacity:0;
+  transition:all .3s cubic-bezier(.4,0,.2,1);
+  z-index:9999; display:flex; align-items:center; gap:10px;
+}
+#toast.show { transform:translateY(0); opacity:1; }
+
+/* ── LOADING SKELETON ── */
+.skeleton {
+  background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);
+  background-size:200% 100%;
+  animation:shimmer 1.5s infinite;
+  border-radius:8px;
+}
+@keyframes shimmer { to { background-position:-200% 0; } }
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width:6px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:rgba(99,179,237,.15); border-radius:3px; }
+
+/* ── RANGE INPUT ── */
+.range-row { display:flex; gap:12px; align-items:center; margin-bottom:20px; }
+.range-row label { font-size:0.78rem; color:var(--muted); }
+select.styled {
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:8px; color:var(--text);
+  padding:8px 12px; font-family:var(--font); font-size:0.83rem;
+  cursor:pointer; outline:none;
+}
+
+/* ── CORR LEGEND ── */
+.heatmap-wrap { overflow-x:auto; }
+.heatmap-table { border-collapse:collapse; font-size:0.7rem; }
+.heatmap-table td, .heatmap-table th {
+  width:32px; height:32px; text-align:center;
+  border:1px solid rgba(255,255,255,.04);
+}
+.heatmap-table th { background:var(--surface2); color:var(--muted); font-weight:600; }
+
+/* ── RESPONSIVE ── */
+@media(max-width:1100px){
+  .grid-4 { grid-template-columns:repeat(2,1fr); }
+  .milestone-grid { grid-template-columns:repeat(3,1fr); }
+  .weather-grid { grid-template-columns:repeat(2,1fr); }
+}
+@media(max-width:768px){
+  :root{ --nav-w:0px; }
+  .sidebar{ transform:translateX(-240px); }
+  .grid-2,.grid-3 { grid-template-columns:1fr; }
+  .page { padding:20px; }
+}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-title">AQI SeekAI</div>
+    <div class="logo-sub">Karachi Air Intelligence</div>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-label">Navigation</div>
+    <div class="nav-item active" data-page="dashboard">
+      <span class="nav-icon">🏠</span> Dashboard
+    </div>
+    <div class="nav-item" data-page="forecast">
+      <span class="nav-icon">📈</span> 72h Forecast
+    </div>
+    <div class="nav-item" data-page="historical">
+      <span class="nav-icon">📊</span> Historical Data
+    </div>
+    <div class="nav-item" data-page="eda">
+      <span class="nav-icon">🔬</span> EDA & Analytics
+    </div>
+    <div class="nav-item" data-page="model">
+      <span class="nav-icon">🤖</span> Model Info
+    </div>
+  </div>
+
+  <div>
+    <div class="sidebar-footer">
+      <strong>📍 Location</strong><br>
+      Karachi, Pakistan<br>
+      <strong>🌐 Coordinates</strong><br>
+      24.8607°N, 67.0011°E<br>
+      <strong>🕐 Last Refresh</strong><br>
+      <span id="last-refresh-time">—</span>
+    </div>
+    <button class="refresh-btn" id="refresh-btn">
+      <span class="spin-icon">↻</span> Refresh Data
+    </button>
+  </div>
+</nav>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- DASHBOARD -->
+  <div class="page active" id="page-dashboard">
+    <div class="page-header">
+      <h1>Karachi Air Quality Dashboard</h1>
+      <p>Real-time AQI monitoring & 72-hour ML forecast powered by SeekAI</p>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:20px">
+      <!-- Gauge -->
+      <div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
+        <div class="card-title">⚡ Current AQI</div>
+        <div class="gauge-wrap">
+          <div class="gauge-dial" aria-hidden="true">
+            <svg viewBox="0 0 240 132" fill="none" xmlns="http://www.w3.org/2000/svg" id="gauge-svg">
+              <path id="gauge-arc-bg" d="M 28 108 A 92 92 0 0 1 212 108" stroke="rgba(255,255,255,0.08)" stroke-width="12" fill="none" stroke-linecap="round"/>
+              <path id="gauge-arc" d="M 28 108 A 92 92 0 0 1 212 108" stroke="#3b82f6" stroke-width="12" fill="none" stroke-linecap="round"
+                stroke-dasharray="0 289" style="transition:stroke .8s ease, stroke-dasharray .8s ease"/>
+              <g id="gauge-needle-group" transform="rotate(-90 120 108)" style="transition:transform .8s cubic-bezier(.4,0,.2,1)">
+                <line id="gauge-needle" x1="120" y1="108" x2="120" y2="52" stroke="rgba(255,255,255,0.95)" stroke-width="2" stroke-linecap="round"/>
+              </g>
+              <circle cx="120" cy="108" r="6" fill="#0d1524" stroke="rgba(255,255,255,0.35)" stroke-width="2"/>
+            </svg>
+          </div>
+          <div class="gauge-readout">
+            <div class="gauge-value" id="gauge-val" style="color:#3b82f6">—</div>
+            <div class="gauge-label" id="gauge-cat" style="color:var(--muted)">Loading…</div>
+            <div class="gauge-badge" id="gauge-badge" style="background:rgba(59,130,246,.15);color:#60a5fa">—</div>
+            <div class="gauge-time" id="gauge-time">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Forecast mini chart -->
+      <div class="card">
+        <div class="card-title">📈 72-Hour Forecast Preview</div>
+        <div class="chart-wrap" style="height:240px">
+          <canvas id="chart-forecast-mini"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Milestone chips -->
+    <div class="section-title">⏱ Forecast Milestones</div>
+    <div class="milestone-grid" id="milestones" style="margin-bottom:24px">
+      <div class="milestone-chip skeleton" style="height:80px"></div>
+      <div class="milestone-chip skeleton" style="height:80px"></div>
+      <div class="milestone-chip skeleton" style="height:80px"></div>
+      <div class="milestone-chip skeleton" style="height:80px"></div>
+      <div class="milestone-chip skeleton" style="height:80px"></div>
+      <div class="milestone-chip skeleton" style="height:80px"></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Weather panel -->
+    <div class="section-title">🌤 Current Weather Conditions</div>
+    <div class="weather-grid" id="weather-grid" style="margin-bottom:24px">
+      <div class="weather-card skeleton" style="height:90px"></div>
+      <div class="weather-card skeleton" style="height:90px"></div>
+      <div class="weather-card skeleton" style="height:90px"></div>
+      <div class="weather-card skeleton" style="height:90px"></div>
+      <div class="weather-card skeleton" style="height:90px"></div>
+      <div class="weather-card skeleton" style="height:90px"></div>
+      <div class="weather-card skeleton" style="height:90px"></div>
+      <div class="weather-card skeleton" style="height:90px"></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Pollutant breakdown -->
+    <div class="section-title">🏭 Pollutant Sub-AQI Breakdown</div>
+    <div class="card">
+      <div class="poll-bars" id="poll-bars">
+        <div class="skeleton" style="height:20px"></div>
+        <div class="skeleton" style="height:20px"></div>
+        <div class="skeleton" style="height:20px"></div>
+        <div class="skeleton" style="height:20px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FORECAST PAGE -->
+  <div class="page" id="page-forecast">
+    <div class="page-header">
+      <h1>72-Hour AQI Forecast</h1>
+      <p>LightGBM per-horizon models with live Open-Meteo weather injection</p>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">📈 Full 72h Forecast</div>
+      <div class="chart-wrap" style="height:340px">
+        <canvas id="chart-forecast-full"></canvas>
+      </div>
+    </div>
+
+    <div class="grid-3" style="margin-bottom:20px" id="band-cards">
+      <div class="band-card skeleton" style="height:130px"></div>
+      <div class="band-card skeleton" style="height:130px"></div>
+      <div class="band-card skeleton" style="height:130px"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">📋 Detailed Forecast Table</div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="forecast-table">
+          <thead>
+            <tr>
+              <th>Hour</th>
+              <th>Forecast Time</th>
+              <th>Predicted AQI</th>
+              <th>Band</th>
+              <th>Category</th>
+            </tr>
+          </thead>
+          <tbody id="forecast-tbody">
+            <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:30px">Loading forecast…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORICAL PAGE -->
+  <div class="page" id="page-historical">
+    <div class="page-header">
+      <h1>Historical AQI Data</h1>
+      <p>Past observations from Karachi AQI feature store</p>
+    </div>
+
+    <div class="range-row">
+      <label>Days of history:</label>
+      <select class="styled" id="hist-days">
+        <option value="1">Last 24 hours</option>
+        <option value="2">Last 2 days</option>
+        <option value="5" selected>Last 5 days</option>
+        <option value="7">Last 7 days</option>
+        <option value="14">Last 14 days</option>
+        <option value="30">Last 30 days</option>
+      </select>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">📉 AQI Over Time</div>
+      <div class="chart-wrap" style="height:320px">
+        <canvas id="chart-historical"></canvas>
+      </div>
+    </div>
+
+    <div class="grid-6" id="hist-stats" style="margin-bottom:20px">
+      <div class="metric-card skeleton" style="height:80px"></div>
+      <div class="metric-card skeleton" style="height:80px"></div>
+      <div class="metric-card skeleton" style="height:80px"></div>
+      <div class="metric-card skeleton" style="height:80px"></div>
+      <div class="metric-card skeleton" style="height:80px"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">🕐 Average AQI by Hour of Day</div>
+      <div class="chart-wrap" style="height:260px">
+        <canvas id="chart-hourly"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🧪 Pollutant Trends</div>
+      <div class="chart-wrap" style="height:280px">
+        <canvas id="chart-pollutants"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDA PAGE -->
+  <div class="page" id="page-eda">
+    <div class="page-header">
+      <h1>Exploratory Data Analysis</h1>
+      <p>Statistical insights into Karachi's air quality patterns</p>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:20px">
+      <div class="card">
+        <div class="card-title">📊 AQI Category Breakdown</div>
+        <div class="chart-wrap" style="height:280px">
+          <canvas id="chart-cat-pie"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">🌡 Temperature vs AQI</div>
+        <div class="chart-wrap" style="height:280px">
+          <canvas id="chart-scatter"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">🗓 AQI Heatmap — Day × Hour</div>
+      <div class="chart-wrap" style="height:260px">
+        <canvas id="chart-heatmap"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🏭 Dominant Pollutant Frequency</div>
+      <div class="chart-wrap" style="height:260px">
+        <canvas id="chart-dom-pol"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODEL INFO PAGE -->
+  <div class="page" id="page-model">
+    <div class="page-header">
+      <h1>Model Performance & Details</h1>
+      <p>Per-horizon LightGBM metrics & architecture overview</p>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">📈 R² by Horizon</div>
+      <div class="chart-wrap" style="height:280px">
+        <canvas id="chart-r2"></canvas>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">📋 Per-Horizon Metrics</div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="metrics-table">
+          <thead>
+            <tr><th>Horizon</th><th>Band</th><th>R²</th><th>RMSE</th><th>MAE</th><th>Samples</th></tr>
+          </thead>
+          <tbody id="metrics-tbody">
+            <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:20px">
+      <div class="card">
+        <div class="card-title">🏗 Architecture</div>
+        <table class="arch-table" id="arch-table">
+          <tbody>
+            <tr><td colspan="2" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="card-title">🧬 Model Features <span id="feat-count" style="color:var(--primary);margin-left:6px"></span></div>
+        <div id="feat-tags" style="max-height:300px;overflow-y:auto;line-height:2">
+          <div class="skeleton" style="height:200px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- TOAST -->
+<div id="toast">
+  <span id="toast-icon">✓</span>
+  <span id="toast-msg">Data refreshed</span>
+</div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────────────────────────
+const API = 'http://localhost:8000';
+
+// AQI level helpers
+const AQI_LEVELS = [
+  [0,50,'Good','#00e400'],
+  [51,100,'Moderate','#ffff00'],
+  [101,150,'Unhealthy for Sensitive','#ff7e00'],
+  [151,200,'Unhealthy','#ff0000'],
+  [201,300,'Very Unhealthy','#8f3f97'],
+  [301,500,'Hazardous','#7e0023'],
+];
+function aqiColor(v){ for(const[lo,hi,,c] of AQI_LEVELS) if(v>=lo&&v<=hi) return c; return '#7e0023'; }
+function aqiLabel(v){ for(const[lo,hi,l] of AQI_LEVELS) if(v>=lo&&v<=hi) return l; return 'Hazardous'; }
+
+// ── CHART DEFAULTS ──────────────────────────────────────────────────────────
+Chart.defaults.color = '#5a7093';
+Chart.defaults.borderColor = 'rgba(99,179,237,0.07)';
+Chart.defaults.font.family = "var(--font)";
+
+const DARK = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { labels: { color:'#8096b0', font:{size:11} } },
+    tooltip: {
+      backgroundColor:'#0d1524',
+      borderColor:'rgba(99,179,237,0.2)', borderWidth:1,
+      titleColor:'#e8edf5', bodyColor:'#8096b0',
+      padding:10, cornerRadius:8,
+    },
+  },
+  scales: {
+    x: { grid:{color:'rgba(99,179,237,0.05)'}, ticks:{color:'#5a7093',maxRotation:0} },
+    y: { grid:{color:'rgba(99,179,237,0.05)'}, ticks:{color:'#5a7093'} },
+  },
+};
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+let currentData = null;
+let forecastData = null;
+let historicalData = null;
+let edaData = null;
+let modelData = null;
+let charts = {};
+
+function destroyChart(id){
+  if(charts[id]){ charts[id].destroy(); delete charts[id]; }
+  const canvas = document.getElementById('chart-' + id);
+  if(canvas){
+    const existing = Chart.getChart(canvas);
+    if(existing) existing.destroy();
+  }
+}
+
+// ── NAV ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.nav-item').forEach(el=>{
+  el.addEventListener('click',()=>{
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    el.classList.add('active');
+    const pg = el.dataset.page;
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    document.getElementById('page-'+pg).classList.add('active');
+    if(pg==='forecast'  && forecastData)  renderForecastPage();
+    if(pg==='historical') loadHistorical(false);
+    if(pg==='eda'       && !edaData)      loadEDA();
+    if(pg==='model'     && !modelData)    loadModel();
+  });
+});
+
+// ── TOAST ────────────────────────────────────────────────────────────────────
+function toast(msg,ok=true){
+  const t=document.getElementById('toast');
+  document.getElementById('toast-msg').textContent=msg;
+  document.getElementById('toast-icon').textContent=ok?'✓':'✕';
+  t.style.borderColor = ok?'rgba(16,185,129,.3)':'rgba(239,68,68,.3)';
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3000);
+}
+
+// ── FETCH HELPERS ────────────────────────────────────────────────────────────
+async function api(path){
+  const r = await fetch(new URL(path.replace(/^\//, ''), API + '/'));
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ── GAUGE ────────────────────────────────────────────────────────────────────
+function updateGauge(aqi, cat, color, dt){
+  document.getElementById('gauge-val').textContent = Math.round(aqi);
+  document.getElementById('gauge-val').style.color = color;
+  document.getElementById('gauge-cat').textContent = cat;
+  document.getElementById('gauge-badge').textContent = cat;
+  document.getElementById('gauge-badge').style.background = color+'22';
+  document.getElementById('gauge-badge').style.color = color;
+  document.getElementById('gauge-time').textContent = dt ? 'Updated: '+new Date(dt).toLocaleString() : '';
+
+  // Arc: 0–500 maps to 0–180° (semicircle r=92)
+  const pct = Math.min(aqi/500, 1);
+  const totalLen = Math.PI * 92;
+  document.getElementById('gauge-arc').setAttribute('stroke-dasharray', `${pct * totalLen} ${totalLen}`);
+  document.getElementById('gauge-arc').setAttribute('stroke', color);
+
+  // Needle: arc runs left (AQI 0) → right (AQI 500) along the top semicircle
+  const angle = -90 + pct * 180;
+  document.getElementById('gauge-needle-group').setAttribute('transform', `rotate(${angle} 120 108)`);
+}
+
+// ── DASHBOARD ────────────────────────────────────────────────────────────────
+async function loadDashboard(){
+  try {
+    currentData = await api('/api/current');
+    const { aqi, category, color, datetime, weather, sub_aqi } = currentData;
+    const pkt = new Date().toLocaleString('en-PK',{timeZone:'Asia/Karachi'});
+    document.getElementById('last-refresh-time').textContent = pkt;
+    updateGauge(aqi, category, color, datetime);
+    renderWeather(weather || {});
+    renderPollBars(sub_aqi || {});
+  } catch(e){
+    toast('Current AQI failed: '+e.message, false);
+    console.error(e);
+    return;
+  }
+
+  try {
+    forecastData = await api('/api/forecast');
+    const fc = forecastData.forecasts || [];
+    renderMilestones(fc, currentData.aqi);
+    renderMiniChart(fc);
+    const msg = currentData.stale
+      ? `Dashboard updated (data from ${currentData.datetime})`
+      : 'Dashboard updated';
+    toast(fc.length ? msg : msg + ' — forecast unavailable');
+  } catch(e){
+    toast('Forecast failed: '+e.message, false);
+    console.error(e);
+  }
+}
+
+function renderMilestones(fc, currentAqi){
+  const milestones = [1,6,12,24,48,72];
+  const el = document.getElementById('milestones');
+  el.innerHTML = milestones.map(h=>{
+    const row = fc.find(f=>f.hour===h);
+    if(!row) return `<div class="milestone-chip"><div class="milestone-h">t+${h}h</div><div class="milestone-aqi" style="color:var(--muted)">N/A</div></div>`;
+    const delta = row.predicted_aqi - currentAqi;
+    const dSign = delta >= 0 ? '+' : '';
+    const dColor = delta > 10 ? '#ef4444' : delta < -10 ? '#10b981' : 'var(--muted)';
+    return `
+    <div class="milestone-chip">
+      <div class="milestone-h">t+${h}h</div>
+      <div class="milestone-aqi" style="color:${row.color}">${Math.round(row.predicted_aqi)}</div>
+      <div class="milestone-delta" style="color:${dColor}">${dSign}${delta.toFixed(0)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderWeather(w){
+  const items = [
+    ['🌡️','Temp',      w.temperature_2m!=null ? w.temperature_2m.toFixed(1)+'°C' : 'N/A'],
+    ['💧','Humidity',  w.relative_humidity_2m!=null ? Math.round(w.relative_humidity_2m)+'%' : 'N/A'],
+    ['💨','Wind',      w.windspeed_10m!=null ? w.windspeed_10m.toFixed(1)+' km/h' : 'N/A'],
+    ['☁️','Cloud',     w.cloud_cover!=null ? Math.round(w.cloud_cover)+'%' : 'N/A'],
+    ['🌡️','Dew Pt',   w.dew_point_2m!=null ? w.dew_point_2m.toFixed(1)+'°C' : 'N/A'],
+    ['📊','Pressure',  w.surface_pressure!=null ? Math.round(w.surface_pressure)+' hPa' : 'N/A'],
+    ['☀️','Radiation', w.shortwave_radiation!=null ? Math.round(w.shortwave_radiation)+' W/m²' : 'N/A'],
+    ['🌬️','Gusts',    w.wind_gusts_10m!=null ? w.wind_gusts_10m.toFixed(1)+' km/h' : 'N/A'],
+  ];
+  document.getElementById('weather-grid').innerHTML = items.map(([icon,name,val])=>`
+    <div class="weather-card">
+      <div class="weather-icon">${icon}</div>
+      <div class="weather-name">${name}</div>
+      <div class="weather-val">${val}</div>
+    </div>`).join('');
+}
+
+function renderPollBars(sub_aqi){
+  const map = {pm2_5:'PM2.5',pm10:'PM10',nitrogen_dioxide:'NO₂',ozone:'O₃',sulphur_dioxide:'SO₂',carbon_monoxide:'CO'};
+  const maxVal = Math.max(...Object.values(sub_aqi).filter(v=>v!=null).map(Number), 1);
+  const html = Object.entries(map).map(([k,lbl])=>{
+    const v = sub_aqi[k];
+    if(v==null) return '';
+    const pct = Math.min(v/maxVal*100,100);
+    const c = aqiColor(v);
+    return `
+    <div class="poll-row">
+      <div class="poll-name">${lbl}</div>
+      <div class="poll-bar-wrap"><div class="poll-bar" style="width:${pct}%;background:${c}"></div></div>
+      <div class="poll-val" style="color:${c}">${Math.round(v)}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('poll-bars').innerHTML = html || '<div style="color:var(--muted);text-align:center;padding:20px">No sub-AQI data</div>';
+}
+
+function renderMiniChart(fc){
+  destroyChart('forecast-mini');
+  if(!fc.length) return;
+
+  const hours = [...new Set(fc.map(p=>p.hour))].sort((a,b)=>a-b);
+  const labels = hours.map(h=>`t+${h}h`);
+  const bands = {short:'#3b82f6',medium:'#f59e0b',long:'#8b5cf6'};
+  const datasets = Object.entries(bands).map(([band,color])=>{
+    const byHour = Object.fromEntries(fc.filter(f=>f.band===band).map(p=>[p.hour,p.predicted_aqi]));
+    return {
+      label: band.charAt(0).toUpperCase()+band.slice(1),
+      data: hours.map(h=>byHour[h] ?? null),
+      borderColor: color, backgroundColor: color+'18',
+      borderWidth:2, pointRadius:2, fill:false, tension:0.3,
+      spanGaps:true,
+    };
+  });
+
+  const ctx = document.getElementById('chart-forecast-mini').getContext('2d');
+  charts['forecast-mini'] = new Chart(ctx, {
+    type:'line',
+    data:{ labels, datasets },
+    options:{
+      ...DARK,
+      plugins:{ ...DARK.plugins, legend:{ display:false } },
+      scales:{
+        x:{ ...DARK.scales.x },
+        y:{ ...DARK.scales.y, min:0 },
+      },
+    },
+  });
+}
+
+// ── FORECAST PAGE ─────────────────────────────────────────────────────────────
+async function renderForecastPage(){
+  if(!forecastData) {
+    try { forecastData = await api('/api/forecast'); } catch(e){ return; }
+  }
+  const fc = forecastData.forecasts;
+
+  // Full chart
+  destroyChart('forecast-full');
+  const bands = {short:{color:'#3b82f6',label:'Short (t+1–8h)'},
+                 medium:{color:'#f59e0b',label:'Medium (t+9–24h)'},
+                 long:{color:'#8b5cf6',label:'Long (t+25–72h)'}};
+  const hours = [...new Set(fc.map(p=>p.hour))].sort((a,b)=>a-b);
+  const labels = hours.map(h=>`t+${h}h`);
+  const datasets = Object.entries(bands).map(([band,{color,label}])=>{
+    const byHour = Object.fromEntries(fc.filter(f=>f.band===band).map(p=>[p.hour,p.predicted_aqi]));
+    return {
+      label,
+      data: hours.map(h=>byHour[h] ?? null),
+      borderColor:color, backgroundColor:color+'15',
+      borderWidth:2.5, pointRadius:3, fill:true, tension:0.35,
+      spanGaps:true,
+    };
+  });
+
+  const ctx = document.getElementById('chart-forecast-full').getContext('2d');
+  charts['forecast-full'] = new Chart(ctx, {
+    type:'line',
+    data:{ labels, datasets },
+    options:{
+      ...DARK,
+      scales:{
+        x:{ ...DARK.scales.x },
+        y:{ ...DARK.scales.y, min:0 },
+      },
+    },
+  });
+
+  // Band cards
+  const bandKeys = ['short','medium','long'];
+  const bandColors = {short:'#3b82f6',medium:'#f59e0b',long:'#8b5cf6'};
+  const bandRanges = {short:'t+1–8h',medium:'t+9–24h',long:'t+25–72h'};
+  document.getElementById('band-cards').innerHTML = bandKeys.map(band=>{
+    const bfc = fc.filter(f=>f.band===band);
+    if(!bfc.length) return '';
+    const avg = bfc.reduce((s,f)=>s+f.predicted_aqi,0)/bfc.length;
+    const pk  = Math.max(...bfc.map(f=>f.predicted_aqi));
+    const mn  = Math.min(...bfc.map(f=>f.predicted_aqi));
+    const c   = bandColors[band];
+    return `
+    <div class="band-card">
+      <div class="band-header">
+        <div class="band-dot" style="background:${c}"></div>
+        ${band.charAt(0).toUpperCase()+band.slice(1)} Band
+        <span style="color:var(--muted);font-size:0.75rem;font-weight:400">${bandRanges[band]}</span>
+      </div>
+      <div class="band-stat"><span class="band-stat-label">Avg AQI</span><span class="band-stat-val" style="color:${c}">${avg.toFixed(1)}</span></div>
+      <div class="band-stat"><span class="band-stat-label">Peak AQI</span><span class="band-stat-val" style="color:${aqiColor(pk)}">${pk.toFixed(1)}</span></div>
+      <div class="band-stat"><span class="band-stat-label">Min AQI</span><span class="band-stat-val" style="color:${aqiColor(mn)}">${mn.toFixed(1)}</span></div>
+    </div>`;
+  }).join('');
+
+  // Table
+  document.getElementById('forecast-tbody').innerHTML = fc.map(f=>{
+    const dt = new Date(f.datetime).toLocaleString('en-PK',{timeZone:'Asia/Karachi'});
+    const c  = bandColors[f.band]||'#5a7093';
+    return `
+    <tr>
+      <td style="font-weight:600">t+${f.hour}h</td>
+      <td style="color:var(--muted)">${dt}</td>
+      <td class="td-num" style="color:${f.color};font-weight:600">${f.predicted_aqi}</td>
+      <td><span class="badge" style="background:${c}22;color:${c}">${f.band}</span></td>
+      <td><span class="badge" style="background:${f.color}22;color:${f.color};border:1px solid ${f.color}44">${f.category}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── HISTORICAL PAGE ───────────────────────────────────────────────────────────
+let histLoading = false;
+let histDaysLoaded = null;
+
+async function loadHistorical(force=true){
+  const days = document.getElementById('hist-days').value;
+  if(histLoading) return;
+  if(!force && historicalData && histDaysLoaded === days){
+    renderHistoricalPage(historicalData.rows);
+    return;
+  }
+  histLoading = true;
+  try {
+    historicalData = await api(`/api/historical?days=${days}`);
+    histDaysLoaded = days;
+    renderHistoricalPage(historicalData.rows);
+  } catch(e){
+    toast('Historical load failed: '+e.message, false);
+    console.error(e);
+  } finally {
+    histLoading = false;
+  }
+}
+
+document.getElementById('hist-days').addEventListener('change', ()=>loadHistorical(true));
+
+function renderHistoricalPage(rows){
+  if(!rows.length){ toast('No historical data',false); return; }
+
+  const labels = rows.map(r=>r.datetime);
+  const aqis   = rows.map(r=>r.us_aqi);
+  const colors = aqis.map(v=>v!=null?aqiColor(v):'#5a7093');
+
+  // Main AQI chart
+  destroyChart('historical');
+  const ctx = document.getElementById('chart-historical').getContext('2d');
+  charts['historical'] = new Chart(ctx,{
+    type:'line',
+    data:{
+      labels,
+      datasets:[{
+        label:'Observed AQI',
+        data:aqis,
+        borderColor:'#3b82f6',
+        backgroundColor:'rgba(59,130,246,0.08)',
+        borderWidth:1.8, pointRadius:0, fill:true, tension:0.2,
+      }],
+    },
+    options:{
+      ...DARK,
+      scales:{
+        x:{ ...DARK.scales.x, ticks:{ ...DARK.scales.x.ticks, maxTicksLimit:12 } },
+        y:{ ...DARK.scales.y, min:0 },
+      },
+    },
+  });
+
+  // Summary stats
+  const valid = aqis.filter(v=>v!=null);
+  const stats = [
+    ['Mean AQI', (valid.reduce((a,b)=>a+b,0)/valid.length).toFixed(1)],
+    ['Median AQI', median(valid).toFixed(1)],
+    ['Peak AQI', Math.max(...valid).toFixed(0)],
+    ['Min AQI', Math.min(...valid).toFixed(0)],
+    ['Data Points', valid.length.toLocaleString()],
+  ];
+  document.getElementById('hist-stats').innerHTML = stats.map(([lbl,val])=>`
+    <div class="metric-card">
+      <div class="metric-label">${lbl}</div>
+      <div class="metric-value">${val}</div>
+    </div>`).join('');
+
+  // Hourly avg bar chart
+  const hourBuckets = {};
+  rows.forEach(r=>{
+    if(r.us_aqi==null) return;
+    const h = new Date(r.datetime).getHours();
+    if(!hourBuckets[h]) hourBuckets[h]={sum:0,cnt:0};
+    hourBuckets[h].sum += r.us_aqi;
+    hourBuckets[h].cnt++;
+  });
+  const hourLabels = Array.from({length:24},(_,i)=>i);
+  const hourAvgs   = hourLabels.map(h=>hourBuckets[h] ? +(hourBuckets[h].sum/hourBuckets[h].cnt).toFixed(1) : null);
+
+  destroyChart('hourly');
+  const ctx2 = document.getElementById('chart-hourly').getContext('2d');
+  charts['hourly'] = new Chart(ctx2,{
+    type:'bar',
+    data:{
+      labels:hourLabels.map(h=>h+':00'),
+      datasets:[{
+        label:'Avg AQI',
+        data:hourAvgs,
+        backgroundColor: hourAvgs.map(v=>v!=null?aqiColor(v)+'aa':'#5a7093'),
+        borderRadius:5,
+      }],
+    },
+    options:{
+      ...DARK,
+      plugins:{ ...DARK.plugins, legend:{display:false} },
+    },
+  });
+
+  // Pollutant trends
+  const pollMap = {pm2_5:'PM2.5',pm10:'PM10',ozone:'O₃',nitrogen_dioxide:'NO₂'};
+  const pollColors = ['#3b82f6','#ef4444','#10b981','#f59e0b'];
+  const pollDatasets = Object.entries(pollMap).map(([key,lbl],i)=>({
+    label: lbl,
+    data: rows.map(r=>r[key]||null),
+    borderColor: pollColors[i],
+    borderWidth:1.5, pointRadius:0, tension:0.2, fill:false,
+  }));
+
+  destroyChart('pollutants');
+  const ctx3 = document.getElementById('chart-pollutants').getContext('2d');
+  charts['pollutants'] = new Chart(ctx3,{
+    type:'line',
+    data:{ labels, datasets:pollDatasets },
+    options:{
+      ...DARK,
+      scales:{
+        x:{ ...DARK.scales.x, ticks:{ ...DARK.scales.x.ticks, maxTicksLimit:12 } },
+        y:{ ...DARK.scales.y, min:0 },
+      },
+    },
+  });
+}
+
+function median(arr){
+  const s=[...arr].sort((a,b)=>a-b);
+  const m=Math.floor(s.length/2);
+  return s.length%2===0?(s[m-1]+s[m])/2:s[m];
+}
+
+// ── EDA PAGE ─────────────────────────────────────────────────────────────────
+async function loadEDA(){
+  try {
+    edaData = await api('/api/eda');
+    renderEDA(edaData);
+  } catch(e){ toast('EDA load failed: '+e.message,false); }
+}
+
+function renderEDA(d){
+  // Category pie
+  destroyChart('cat-pie');
+  const catColors = {
+    'Good':'#00e400','Moderate':'#ffff00','Unhealthy for Sensitive':'#ff7e00',
+    'Unhealthy':'#ff0000','Very Unhealthy':'#8f3f97','Hazardous':'#7e0023',
+  };
+  const catKeys = Object.keys(d.category_breakdown||{});
+  const catVals = catKeys.map(k=>d.category_breakdown[k]);
+  const ctx = document.getElementById('chart-cat-pie').getContext('2d');
+  charts['cat-pie'] = new Chart(ctx,{
+    type:'doughnut',
+    data:{
+      labels:catKeys,
+      datasets:[{
+        data:catVals,
+        backgroundColor:catKeys.map(k=>catColors[k]||'#5a7093'),
+        borderColor:'#060b14', borderWidth:2,
+      }],
+    },
+    options:{
+      ...DARK,
+      cutout:'60%',
+      plugins:{ ...DARK.plugins, legend:{position:'bottom', labels:{color:'#8096b0',font:{size:10}}} },
+    },
+  });
+
+  // Scatter
+  destroyChart('scatter');
+  const scatter = (d.temp_aqi_scatter||[]).map(p=>({x:p.temp,y:p.aqi}));
+  const ctx2 = document.getElementById('chart-scatter').getContext('2d');
+  charts['scatter'] = new Chart(ctx2,{
+    type:'scatter',
+    data:{ datasets:[{
+      label:'Temp vs AQI',
+      data:scatter,
+      backgroundColor: scatter.map(p=>aqiColor(p.y)+'88'),
+      pointRadius:3,
+    }]},
+    options:{
+      ...DARK,
+      scales:{
+        x:{ ...DARK.scales.x, title:{display:true,text:'Temperature (°C)',color:'#5a7093'} },
+        y:{ ...DARK.scales.y, title:{display:true,text:'US AQI',color:'#5a7093'} },
+      },
+    },
+  });
+
+  // Heatmap (as matrix chart using bar with grouped)
+  const dowOrder = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const heatRows = (d.heatmap||[]).sort((a,b)=>dowOrder.indexOf(a.day)-dowOrder.indexOf(b.day));
+  const hours = Array.from({length:24},(_,i)=>i);
+
+  // Flatten heatmap into a scatter of circles or use a custom rendering
+  destroyChart('heatmap');
+  const heatDatasets = heatRows.map((row,ri)=>({
+    label: row.day.slice(0,3),
+    data: hours.map(h=>({ x:h, y:ri, r: 12 })),
+    backgroundColor: hours.map(h=>{
+      const v = row.hours[h];
+      return v!=null ? aqiColor(v)+'bb' : 'rgba(255,255,255,0.04)';
+    }),
+  }));
+  const ctx3 = document.getElementById('chart-heatmap').getContext('2d');
+  charts['heatmap'] = new Chart(ctx3,{
+    type:'bubble',
+    data:{ datasets:heatDatasets },
+    options:{
+      ...DARK,
+      plugins:{ ...DARK.plugins, legend:{ display:false } },
+      scales:{
+        x:{ ...DARK.scales.x, title:{display:true,text:'Hour of Day',color:'#5a7093'},
+            min:-0.5, max:23.5, ticks:{stepSize:4,callback:v=>v+':00'} },
+        y:{ ...DARK.scales.y, min:-0.5, max:heatRows.length-0.5,
+            ticks:{callback:i=>heatRows[i]?.day.slice(0,3)??''} },
+      },
+    },
+  });
+
+  // Dominant pollutant
+  destroyChart('dom-pol');
+  const domKeys = Object.keys(d.dominant_pollutant||{});
+  const domVals = domKeys.map(k=>d.dominant_pollutant[k]);
+  const ctx4 = document.getElementById('chart-dom-pol').getContext('2d');
+  charts['dom-pol'] = new Chart(ctx4,{
+    type:'bar',
+    data:{
+      labels:domKeys,
+      datasets:[{
+        label:'Hours as Dominant',
+        data:domVals,
+        backgroundColor:['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#06b6d4'],
+        borderRadius:6,
+      }],
+    },
+    options:{
+      ...DARK,
+      plugins:{ ...DARK.plugins, legend:{display:false} },
+    },
+  });
+}
+
+// ── MODEL PAGE ────────────────────────────────────────────────────────────────
+async function loadModel(){
+  try {
+    modelData = await api('/api/model-info');
+    renderModel(modelData);
+  } catch(e){ toast('Model info load failed: '+e.message,false); }
+}
+
+function renderModel(d){
+  // R² chart
+  const horizons = d.metrics.map(m=>m.horizon);
+  const r2vals   = d.metrics.map(m=>m.r2??0);
+  const bandColor= d.metrics.map(m=>m.band==='Short'?'#3b82f6':m.band==='Medium'?'#f59e0b':'#8b5cf6');
+
+  destroyChart('r2');
+  const ctx = document.getElementById('chart-r2').getContext('2d');
+  charts['r2'] = new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:horizons,
+      datasets:[{
+        label:'R²',
+        data:r2vals,
+        backgroundColor:bandColor.map(c=>c+'cc'),
+        borderRadius:5,
+        datalabels:{ display:true },
+      }],
+    },
+    options:{
+      ...DARK,
+      plugins:{ ...DARK.plugins, legend:{display:false} },
+      scales:{ ...DARK.scales, y:{ ...DARK.scales.y, min:0, max:1.05 } },
+    },
+  });
+
+  // Metrics table
+  document.getElementById('metrics-tbody').innerHTML = d.metrics.map(m=>{
+    const c = m.band==='Short'?'#3b82f6':m.band==='Medium'?'#f59e0b':'#8b5cf6';
+    return `
+    <tr>
+      <td style="font-weight:600">${m.horizon}</td>
+      <td><span class="badge" style="background:${c}22;color:${c}">${m.band}</span></td>
+      <td class="td-num">${m.r2??'N/A'}</td>
+      <td>${m.rmse??'N/A'}</td>
+      <td>${m.mae??'N/A'}</td>
+      <td style="color:var(--muted)">${m.samples!=null?m.samples.toLocaleString():'N/A'}</td>
+    </tr>`;
+  }).join('');
+
+  // Architecture
+  const arch = d.architecture;
+  document.getElementById('arch-table').querySelector('tbody').innerHTML = Object.entries(arch).map(([k,v])=>`
+    <tr>
+      <td>${k.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</td>
+      <td style="color:var(--text)">${v}</td>
+    </tr>`).join('');
+
+  // Feature tags
+  document.getElementById('feat-count').textContent = `(${d.feature_count} features)`;
+  document.getElementById('feat-tags').innerHTML = d.features.map(f=>`<span class="feature-tag">${f}</span>`).join('');
+}
+
+// ── REFRESH ──────────────────────────────────────────────────────────────────
+document.getElementById('refresh-btn').addEventListener('click',async()=>{
+  const btn = document.getElementById('refresh-btn');
+  btn.classList.add('spinning');
+  forecastData = null; historicalData = null; histDaysLoaded = null; edaData = null; modelData = null;
+  await loadDashboard();
+  btn.classList.remove('spinning');
+});
+
+// ── BOOT ─────────────────────────────────────────────────────────────────────
+loadDashboard();
+</script>
+</body>
+</html>
