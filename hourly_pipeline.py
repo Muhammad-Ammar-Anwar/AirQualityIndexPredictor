@@ -377,6 +377,8 @@ def engineer_current_hour(raw_row, history_df):
 
     # ── AQI — prefer API-provided value ──
     row = raw_row.iloc[0]
+    extra_cols = {}  # accumulate all new columns here, concat once at end
+
     if 'us_aqi' in raw_row.columns and pd.notna(row.get('us_aqi')):
         print(f"[FEATURES] Using API-provided US AQI: {row['us_aqi']}")
         # Determine dominant pollutant from sub-indices
@@ -391,9 +393,9 @@ def engineer_current_hour(raw_row, history_df):
                 'us_aqi_nitrogen_dioxide': 'NO2', 'us_aqi_ozone': 'O3',
                 'us_aqi_sulphur_dioxide': 'SO2', 'us_aqi_carbon_monoxide': 'CO'
             }
-            raw_row["dominant_pollutant"] = name_map.get(dominant_col, 'N/A')
+            extra_cols["dominant_pollutant"] = name_map.get(dominant_col, 'N/A')
         else:
-            raw_row["dominant_pollutant"] = 'N/A'
+            extra_cols["dominant_pollutant"] = 'N/A'
     else:
         # Fallback: compute AQI manually
         aqi_val, dominant = compute_aqi(
@@ -401,17 +403,17 @@ def engineer_current_hour(raw_row, history_df):
             o3=row.get("ozone"), no2=row.get("nitrogen_dioxide"),
             so2=row.get("sulphur_dioxide"), co=row.get("carbon_monoxide")
         )
-        raw_row["us_aqi"] = aqi_val
-        raw_row["dominant_pollutant"] = dominant
+        extra_cols["us_aqi"] = aqi_val
+        extra_cols["dominant_pollutant"] = dominant
         print(f"[FEATURES] Computed AQI manually (fallback): {aqi_val}")
 
     # ── Wind decomposition ──
     if "windspeed_10m" in raw_row.columns and "winddirection_10m" in raw_row.columns:
         rad = np.deg2rad(raw_row["winddirection_10m"].values[0])
         ws = raw_row["windspeed_10m"].values[0]
-        raw_row["wind_speed"] = ws
-        raw_row["wind_u"] = -ws * np.sin(rad)
-        raw_row["wind_v"] = -ws * np.cos(rad)
+        extra_cols["wind_speed"] = ws
+        extra_cols["wind_u"] = -ws * np.sin(rad)
+        extra_cols["wind_v"] = -ws * np.cos(rad)
 
     # ── Time features ──
     dt = raw_row["datetime"].iloc[0]
@@ -419,50 +421,51 @@ def engineer_current_hour(raw_row, history_df):
     dow = dt.weekday()
     month = dt.month
     doy = dt.timetuple().tm_yday
-    raw_row["hour_sin"]        = np.sin(2 * np.pi * hour / 24)
-    raw_row["hour_cos"]        = np.cos(2 * np.pi * hour / 24)
-    raw_row["day_of_week_sin"] = np.sin(2 * np.pi * dow / 7)
-    raw_row["day_of_week_cos"] = np.cos(2 * np.pi * dow / 7)
-    raw_row["month_sin"]       = np.sin(2 * np.pi * month / 12)
-    raw_row["month_cos"]       = np.cos(2 * np.pi * month / 12)
-    raw_row["day_of_year_sin"] = np.sin(2 * np.pi * doy / 365)
-    raw_row["day_of_year_cos"] = np.cos(2 * np.pi * doy / 365)
-    raw_row["is_weekend"]      = 1.0 if dow >= 5 else 0.0
+    extra_cols["hour_sin"]        = np.sin(2 * np.pi * hour / 24)
+    extra_cols["hour_cos"]        = np.cos(2 * np.pi * hour / 24)
+    extra_cols["day_of_week_sin"] = np.sin(2 * np.pi * dow / 7)
+    extra_cols["day_of_week_cos"] = np.cos(2 * np.pi * dow / 7)
+    extra_cols["month_sin"]       = np.sin(2 * np.pi * month / 12)
+    extra_cols["month_cos"]       = np.cos(2 * np.pi * month / 12)
+    extra_cols["day_of_year_sin"] = np.sin(2 * np.pi * doy / 365)
+    extra_cols["day_of_year_cos"] = np.cos(2 * np.pi * doy / 365)
+    extra_cols["is_weekend"]      = 1.0 if dow >= 5 else 0.0
 
     # ── Interaction features (v2: added radiation×aerosol, vpd×temp) ──
     if "relative_humidity_2m" in raw_row.columns and "temperature_2m" in raw_row.columns:
-        raw_row["humidity_temp_interaction"] = (
+        extra_cols["humidity_temp_interaction"] = (
             raw_row["relative_humidity_2m"].values[0] *
             raw_row["temperature_2m"].values[0]
         )
     if "temperature_2m" in raw_row.columns and "surface_pressure" in raw_row.columns:
-        raw_row["temp_pressure_interaction"] = (
+        extra_cols["temp_pressure_interaction"] = (
             raw_row["temperature_2m"].values[0] *
             raw_row["surface_pressure"].values[0] / 1000.0
         )
-    if "wind_speed" in raw_row.columns and "relative_humidity_2m" in raw_row.columns:
-        raw_row["wind_humidity_interaction"] = (
-            raw_row["wind_speed"].values[0] *
+    wind_speed_val = extra_cols.get("wind_speed", raw_row.get("wind_speed", [None])[0] if "wind_speed" in raw_row.columns else None)
+    if wind_speed_val is not None and "relative_humidity_2m" in raw_row.columns:
+        extra_cols["wind_humidity_interaction"] = (
+            wind_speed_val *
             raw_row["relative_humidity_2m"].values[0]
         )
     if "cloud_cover" in raw_row.columns and "temperature_2m" in raw_row.columns:
-        raw_row["cloud_temp_interaction"] = (
+        extra_cols["cloud_temp_interaction"] = (
             raw_row["cloud_cover"].values[0] *
             raw_row["temperature_2m"].values[0]
         )
     if "aerosol_optical_depth" in raw_row.columns and "relative_humidity_2m" in raw_row.columns:
-        raw_row["aerosol_humidity_interaction"] = (
+        extra_cols["aerosol_humidity_interaction"] = (
             raw_row["aerosol_optical_depth"].values[0] *
             raw_row["relative_humidity_2m"].values[0]
         )
     # NEW v2 interactions
     if "shortwave_radiation" in raw_row.columns and "aerosol_optical_depth" in raw_row.columns:
-        raw_row["radiation_aerosol_interaction"] = (
+        extra_cols["radiation_aerosol_interaction"] = (
             raw_row["shortwave_radiation"].values[0] *
             raw_row["aerosol_optical_depth"].values[0]
         )
     if "vapour_pressure_deficit" in raw_row.columns and "temperature_2m" in raw_row.columns:
-        raw_row["vpd_temp_interaction"] = (
+        extra_cols["vpd_temp_interaction"] = (
             raw_row["vapour_pressure_deficit"].values[0] *
             raw_row["temperature_2m"].values[0]
         )
@@ -505,48 +508,48 @@ def engineer_current_hour(raw_row, history_df):
         for col in weather_cols:
             for w in [6, 12, 24]:
                 window = combined[col].iloc[max(0, last_idx - w + 1):last_idx + 1]
-                raw_row[f"{col}_rolling_mean_{w}h"] = float(window.mean())
+                extra_cols[f"{col}_rolling_mean_{w}h"] = float(window.mean())
             window_24 = combined[col].iloc[max(0, last_idx - 23):last_idx + 1]
-            raw_row[f"{col}_rolling_std_24h"] = float(window_24.std()) if len(window_24) > 1 else 0.0
+            extra_cols[f"{col}_rolling_std_24h"] = float(window_24.std()) if len(window_24) > 1 else 0.0
             for lag in [12, 24]:
                 idx = last_idx - lag
                 if idx >= 0:
-                    raw_row[f"{col}_lag_{lag}h"] = float(combined[col].iloc[idx])
+                    extra_cols[f"{col}_lag_{lag}h"] = float(combined[col].iloc[idx])
                 else:
-                    raw_row[f"{col}_lag_{lag}h"] = np.nan
+                    extra_cols[f"{col}_lag_{lag}h"] = np.nan
 
         # Sub-AQI index derivatives (NEW in v2)
         for col in sub_aqi_cols:
             for lag in [6, 12, 24]:
                 idx = last_idx - lag
                 if idx >= 0:
-                    raw_row[f"{col}_lag_{lag}h"] = float(combined[col].iloc[idx])
+                    extra_cols[f"{col}_lag_{lag}h"] = float(combined[col].iloc[idx])
                 else:
-                    raw_row[f"{col}_lag_{lag}h"] = np.nan
+                    extra_cols[f"{col}_lag_{lag}h"] = np.nan
             for w in [12, 24]:
                 window = combined[col].iloc[max(0, last_idx - w + 1):last_idx + 1]
-                raw_row[f"{col}_rolling_mean_{w}h"] = float(window.mean())
+                extra_cols[f"{col}_rolling_mean_{w}h"] = float(window.mean())
 
         # AQI autoregressive features
         aqi_col = "us_aqi"
         if aqi_col in combined.columns:
             for lag in [1, 3, 6, 12, 24]:
                 idx = last_idx - lag
-                raw_row[f"us_aqi_lag_{lag}h"] = (
+                extra_cols[f"us_aqi_lag_{lag}h"] = (
                     float(combined[aqi_col].iloc[idx]) if idx >= 0 else np.nan
                 )
             for w in [6, 12, 24]:
                 window = combined[aqi_col].iloc[max(0, last_idx - w + 1):last_idx + 1]
-                raw_row[f"us_aqi_rolling_mean_{w}h"] = float(window.mean())
+                extra_cols[f"us_aqi_rolling_mean_{w}h"] = float(window.mean())
             w6 = combined[aqi_col].iloc[max(0, last_idx - 5):last_idx + 1]
             w24 = combined[aqi_col].iloc[max(0, last_idx - 23):last_idx + 1]
-            raw_row["us_aqi_rolling_std_6h"] = float(w6.std()) if len(w6) > 1 else 0.0
-            raw_row["us_aqi_rolling_std_24h"] = float(w24.std()) if len(w24) > 1 else 0.0
+            extra_cols["us_aqi_rolling_std_6h"] = float(w6.std()) if len(w6) > 1 else 0.0
+            extra_cols["us_aqi_rolling_std_24h"] = float(w24.std()) if len(w24) > 1 else 0.0
             cur = combined[aqi_col].iloc[last_idx]
             lag1 = combined[aqi_col].iloc[last_idx - 1] if last_idx >= 1 else cur
             lag6 = combined[aqi_col].iloc[last_idx - 6] if last_idx >= 6 else cur
-            raw_row["us_aqi_delta_1h"] = float(cur - lag1)
-            raw_row["us_aqi_delta_6h"] = float((cur - lag6) / 6.0)
+            extra_cols["us_aqi_delta_1h"] = float(cur - lag1)
+            extra_cols["us_aqi_delta_6h"] = float((cur - lag6) / 6.0)
     else:
         print("[FEATURES] No history — lag/rolling will be NaN.")
         # Set all derived features to NaN
@@ -560,10 +563,10 @@ def engineer_current_hour(raw_row, history_df):
         ]
         for col in weather_cols:
             for w in [6, 12, 24]:
-                raw_row[f"{col}_rolling_mean_{w}h"] = np.nan
-            raw_row[f"{col}_rolling_std_24h"] = np.nan
+                extra_cols[f"{col}_rolling_mean_{w}h"] = np.nan
+            extra_cols[f"{col}_rolling_std_24h"] = np.nan
             for lag in [12, 24]:
-                raw_row[f"{col}_lag_{lag}h"] = np.nan
+                extra_cols[f"{col}_lag_{lag}h"] = np.nan
 
         # Sub-AQI NaN defaults
         sub_aqi_cols = [
@@ -572,19 +575,24 @@ def engineer_current_hour(raw_row, history_df):
         ]
         for col in sub_aqi_cols:
             for lag in [6, 12, 24]:
-                raw_row[f"{col}_lag_{lag}h"] = np.nan
+                extra_cols[f"{col}_lag_{lag}h"] = np.nan
             for w in [12, 24]:
-                raw_row[f"{col}_rolling_mean_{w}h"] = np.nan
+                extra_cols[f"{col}_rolling_mean_{w}h"] = np.nan
 
         # AQI AR NaN defaults
         for lag in [1, 3, 6, 12, 24]:
-            raw_row[f"us_aqi_lag_{lag}h"] = np.nan
+            extra_cols[f"us_aqi_lag_{lag}h"] = np.nan
         for w in [6, 12, 24]:
-            raw_row[f"us_aqi_rolling_mean_{w}h"] = np.nan
-        raw_row["us_aqi_rolling_std_6h"] = np.nan
-        raw_row["us_aqi_rolling_std_24h"] = np.nan
-        raw_row["us_aqi_delta_1h"] = np.nan
-        raw_row["us_aqi_delta_6h"] = np.nan
+            extra_cols[f"us_aqi_rolling_mean_{w}h"] = np.nan
+        extra_cols["us_aqi_rolling_std_6h"] = np.nan
+        extra_cols["us_aqi_rolling_std_24h"] = np.nan
+        extra_cols["us_aqi_delta_1h"] = np.nan
+        extra_cols["us_aqi_delta_6h"] = np.nan
+
+    # ── Concat all new columns at once to avoid DataFrame fragmentation ──
+    if extra_cols:
+        extra_df = pd.DataFrame([extra_cols], index=raw_row.index)
+        raw_row = pd.concat([raw_row, extra_df], axis=1)
 
     print(f"[FEATURES] Engineered {len(raw_row.columns)} columns.")
     return raw_row
