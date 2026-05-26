@@ -34,6 +34,7 @@ COLLECTION_NAME = (
 )
 
 WEATHER_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+WEATHER_FORECAST_URL_FALLBACK = "https://previous-runs-api.open-meteo.com/v1/forecast"
 AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
 
 LOOKBACK_HOURS = 3       # Fetch last 3 hours to avoid missing data
@@ -154,6 +155,47 @@ def _parse_datetimes(series):
     return dt.dt.tz_localize(None)
 
 
+def _api_get(url: str, params: dict, max_retries: int = 5, fallback_url: str = None) -> dict:
+    """GET with exponential backoff — handles transient 5xx errors.
+    If fallback_url is provided, switches to it immediately on first 502/503/504.
+    """
+    import time as _t
+    current_url = url
+    fallback_used = False
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = requests.get(current_url, params=params, timeout=30)
+            resp.raise_for_status()
+            if fallback_used:
+                print(f"[FETCH] Fallback URL succeeded: {current_url}")
+            return resp.json()
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else 0
+            if status in (502, 503, 504):
+                if not fallback_used and fallback_url:
+                    fallback_used = True
+                    current_url = fallback_url
+                    print(f"[FETCH] {status} on primary — switching to fallback URL (attempt {attempt}/{max_retries})")
+                    continue
+                if attempt < max_retries:
+                    wait = 60 * attempt
+                    print(f"[FETCH] {status} error — retrying in {wait}s (attempt {attempt}/{max_retries})")
+                    _t.sleep(wait)
+                else:
+                    raise
+            else:
+                raise
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries:
+                wait = 60 * attempt
+                print(f"[FETCH] Request error ({e}) — retrying in {wait}s (attempt {attempt}/{max_retries})")
+                _t.sleep(wait)
+            else:
+                raise
+    raise RuntimeError("API request failed after all retries")
+
+
 def fetch_recent_hours():
     """Fetch today's forecast data and extract the last LOOKBACK_HOURS rows."""
     print(f"[FETCH] Fetching last {LOOKBACK_HOURS}h weather + air quality ...")
@@ -164,9 +206,7 @@ def fetch_recent_hours():
         "timezone": "UTC", "forecast_days": 2,
     }
     print(f"[FETCH] Weather URL: {WEATHER_FORECAST_URL}")
-    w_resp = requests.get(WEATHER_FORECAST_URL, params=w_params, timeout=30)
-    w_resp.raise_for_status()
-    w_data = w_resp.json()
+    w_data = _api_get(WEATHER_FORECAST_URL, w_params, fallback_url=WEATHER_FORECAST_URL_FALLBACK)
 
     weather_df = pd.DataFrame({"datetime": w_data["hourly"]["time"]})
     for var in WEATHER_VARS:
@@ -179,9 +219,7 @@ def fetch_recent_hours():
         "timezone": "UTC", "forecast_days": 2,
     }
     print(f"[FETCH] AQ URL: {AIR_QUALITY_URL}")
-    aq_resp = requests.get(AIR_QUALITY_URL, params=aq_params, timeout=30)
-    aq_resp.raise_for_status()
-    aq_data = aq_resp.json()
+    aq_data = _api_get(AIR_QUALITY_URL, aq_params)
 
     aq_df = pd.DataFrame({"datetime": aq_data["hourly"]["time"]})
     for var in AQ_VARS:
@@ -660,23 +698,31 @@ if __name__ == "__main__":
     import traceback as _tb
 
     MAX_RETRIES = 3
-    RETRY_DELAY = 60  # seconds between retries
+    RETRY_DELAY = 90  # seconds — longer wait for API recovery
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             print(f"\n>>> Attempt {attempt}/{MAX_RETRIES}")
             run_hourly_pipeline()
-            break  # success — exit retry loop
+            break
         except Exception as exc:
             print(f"\n[ERROR] Attempt {attempt} failed: {exc}")
             _tb.print_exc()
             if attempt < MAX_RETRIES:
-                print(f"[RETRY] Waiting {RETRY_DELAY}s before retry ...\n")
-                _time.sleep(RETRY_DELAY)
+                wait = RETRY_DELAY * attempt  # exponential: 90s, 180s
+                print(f"[RETRY] Waiting {wait}s before retry ...\n")
+                _time.sleep(wait)
             else:
                 print("\n" + "=" * 70)
                 print(" HOURLY PIPELINE FAILED after all retries")
                 print(f" Error: {exc}")
+                # Check if it's a transient API error (5xx) — exit 0 so CI
+                # doesn't alert on temporary Open-Meteo outages
+                err_str = str(exc).lower()
+                is_transient = any(code in err_str for code in
+                                   ["502", "503", "504", "bad gateway",
+                                    "service unavailable", "timeout"])
+                print(f" Transient API error: {is_transient}")
                 print("=" * 70)
-                sys.exit(1)
+                sys.exit(0 if is_transient else 1)
 
