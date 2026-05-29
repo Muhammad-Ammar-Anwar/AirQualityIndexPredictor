@@ -20,7 +20,6 @@ import pytz
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from pydantic import BaseModel
@@ -115,65 +114,108 @@ def get_mongo_client() -> MongoClient:
 _model_cache: dict = {}
 
 def load_models() -> dict:
+    """
+    Load models from MongoDB. Handles all pipeline versions (v5, v6, v7).
+
+    Precedence: latest pipeline_version wins. For duplicate horizons,
+    the document with the highest version number is used.
+    Decompression: tries zlib first, falls back to raw pickle.
+    """
+    import zlib
+
     global _model_cache
     if _model_cache:
         return _model_cache
 
     client = get_mongo_client()
-    col = client[MODEL_DB][MODEL_COL]
-    docs = list(col.find())
+    col    = client[MODEL_DB][MODEL_COL]
+    docs   = list(col.find({}, {"_id": 0}))
     if not docs:
         raise ValueError(f"No documents found in {MODEL_DB}.{MODEL_COL}")
 
-    models, valid_indices, fc_indices_map = {}, {}, {}
-    feature_cols, main_scaler, training_logs = [], None, {}
+    # ── Version priority map ──────────────────────────────────────────────
+    # When multiple docs exist for the same horizon, keep the latest version.
+    VERSION_ORDER = {"v7": 7, "v6": 6, "v5": 5, "v4": 4, "v3": 3}
 
-    is_new_format = any("horizon" in doc for doc in docs)
+    def version_rank(doc):
+        return VERSION_ORDER.get(doc.get("pipeline_version", ""), 0)
 
+    # Group docs by horizon, keep highest version per horizon
+    best_docs = {}
     for doc in docs:
-        blob = base64.b64decode(doc["model_blob"])
-        if is_new_format:
-            key = doc.get("horizon")
-            if key is None:
-                continue
+        key = doc.get("horizon")
+        if key is None or "model_blob" not in doc:
+            continue
+        if key not in best_docs or version_rank(doc) > version_rank(best_docs[key]):
+            best_docs[key] = doc
+
+    def decode_blob(doc):
+        """Decode model_blob: base64 -> try zlib decompress -> pickle.loads."""
+        raw = base64.b64decode(doc["model_blob"])
+        # Try zlib decompression first
+        try:
+            raw = zlib.decompress(raw)
+        except Exception:
+            pass  # Not compressed — use raw bytes directly
+        return pickle.loads(raw)
+
+    models        = {}
+    valid_indices = {}
+    fc_indices_map= {}
+    feature_cols  = []
+    main_scaler   = None
+    training_logs = {}
+    model_name_used = "unknown"
+
+    for key, doc in best_docs.items():
+        try:
             if key == "_scaler":
-                main_scaler  = pickle.loads(blob)
+                main_scaler  = decode_blob(doc)
                 feature_cols = doc.get("feature_cols", [])
-            else:
-                payload = pickle.loads(blob)
+                continue
+
+            # Skip non-integer horizon meta docs
+            if not isinstance(key, int):
+                continue
+
+            payload = decode_blob(doc)
+
+            # payload is either a dict {model, horizon, valid_indices, fc_indices}
+            # or a raw model object (very old format)
+            if isinstance(payload, dict):
                 models[key]         = payload["model"]
                 valid_indices[key]  = payload.get("valid_indices", [])
                 fc_indices_map[key] = payload.get("fc_indices", [])
-                training_logs[key]  = doc.get("metrics", {})
-        else:
-            key = doc.get("band")
-            if key is None:
-                continue
-            if key == "_scaler":
-                main_scaler  = pickle.loads(blob)
-                feature_cols = doc.get("feature_cols", [])
+                model_name_used     = payload.get("model_name",
+                                        doc.get("model_name", model_name_used))
             else:
-                obj = pickle.loads(blob)
-                band_model  = obj.get("model") if isinstance(obj, dict) else obj
-                band_scaler = obj.get("scaler") if isinstance(obj, dict) else None
-                band_ranges = {"short": range(1,9), "medium": range(9,25), "long": range(25,73)}
-                for h in band_ranges.get(key, []):
-                    if h in KEY_HORIZONS:
-                        models[h]         = band_model
-                        valid_indices[h]  = []
-                        fc_indices_map[h] = []
-                        training_logs[h]  = doc.get("training_log", {}).get("metrics", {})
-                if band_scaler is not None:
-                    for h in band_ranges.get(key, []):
-                        if h in KEY_HORIZONS:
-                            fc_indices_map[h] = band_scaler
+                models[key]         = payload
+                valid_indices[key]  = []
+                fc_indices_map[key] = []
+
+            training_logs[key] = doc.get("metrics", {})
+
+        except Exception as e:
+            print(f"  WARNING: skipping horizon={key} — {e}")
+            continue
 
     if main_scaler is None or not models:
-        raise ValueError("Models or scaler missing in MongoDB.")
+        raise ValueError(
+            f"Models or scaler missing in MongoDB ({MODEL_DB}.{MODEL_COL}). "
+            "Run Model_Retrain_pipeline.py to populate the collection."
+        )
+
+    print(f"Loaded {len(models)} horizon models ({model_name_used}) + scaler "
+          f"| {len(feature_cols)} features")
 
     _model_cache = dict(
-        models=models, valid_indices=valid_indices, fc_indices_map=fc_indices_map,
-        main_scaler=main_scaler, feature_cols=feature_cols, training_logs=training_logs,
+        models=models,
+        valid_indices=valid_indices,
+        fc_indices_map=fc_indices_map,
+        main_scaler=main_scaler,
+        feature_cols=feature_cols,
+        training_logs=training_logs,
+        model_name=model_name_used,
     )
     return _model_cache
 
@@ -222,77 +264,69 @@ async def fetch_weather_forecast(feature_cols, fc_indices_map, main_scaler) -> d
         return {h: np.zeros(len(sample_fci), dtype=np.float32) for h in KEY_HORIZONS}
 
 async def generate_forecast(cache: dict, df: pd.DataFrame) -> list:
+    """
+    Build a 72h AQI forecast using the loaded models.
+
+    Sample layout per horizon h (must match Model_Retrain_pipeline.py):
+      [ X_scaled[valid_indices]  |  live_weather[fc_indices]  |  horizon_encoding(h) ]
+    """
     if df.empty:
         return []
-    models, valid_indices, fc_indices_map, main_scaler, feature_cols = (
-        cache["models"], cache["valid_indices"], cache["fc_indices_map"],
-        cache["main_scaler"], cache["feature_cols"],
-    )
+
+    models         = cache["models"]
+    valid_indices  = cache["valid_indices"]
+    fc_indices_map = cache["fc_indices_map"]
+    main_scaler    = cache["main_scaler"]
+    feature_cols   = cache["feature_cols"]
+
+    # Build the full scaled feature vector from the latest row
     available_cols = [c for c in feature_cols if c in df.columns]
     if not available_cols:
         return []
 
-    full_vec = np.zeros((1, len(feature_cols)), dtype=np.float32)
-    latest_row = df[available_cols].iloc[-1]
+    full_vec = np.zeros(len(feature_cols), dtype=np.float32)
+    latest   = df[available_cols].iloc[-1]
     for col in available_cols:
-        if col in feature_cols:
-            val = latest_row[col]
-            full_vec[0, feature_cols.index(col)] = float(val) if pd.notna(val) else 0.0
-    X_scaled = main_scaler.transform(full_vec)[0]
+        val = latest[col]
+        full_vec[feature_cols.index(col)] = float(val) if pd.notna(val) else 0.0
 
-    has_fc  = any(isinstance(v, list) and len(v) > 0 for v in fc_indices_map.values())
-    live_fc = await fetch_weather_forecast(feature_cols, fc_indices_map, main_scaler) if has_fc else {}
+    X_scaled = main_scaler.transform([full_vec])[0]
 
-    last_dt  = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+    # Fetch live weather forecast for future-weather injection
+    sample_fci = next(
+        (v for v in fc_indices_map.values() if isinstance(v, list) and v), []
+    )
+    live_fc = {}
+    if sample_fci:
+        live_fc = await fetch_weather_forecast(feature_cols, fc_indices_map, main_scaler)
+
+    last_dt   = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
     forecasts = []
 
     for h in KEY_HORIZONS:
         if h not in models:
             continue
-        vi  = valid_indices.get(h, [])
+        vi  = valid_indices.get(h, list(range(len(feature_cols))))
         fci = fc_indices_map.get(h, [])
-        try:
-            if isinstance(fci, list):
-                base   = X_scaled[vi] if vi else X_scaled
-                fc_vec = live_fc.get(h, np.zeros(len(fci), dtype=np.float32))
-                row    = np.concatenate([base, fc_vec, horizon_encoding(h)]) if len(fc_vec) > 0 \
-                         else np.concatenate([base, horizon_encoding(h)])
-            else:
-                band_scaler = fci
-                aqi_history = df["us_aqi"].dropna().values
-                if len(aqi_history) == 0:
-                    continue
-                ar = np.array([
-                    aqi_history[-1],
-                    aqi_history[-6]  if len(aqi_history) >= 6  else aqi_history[-1],
-                    aqi_history[-12] if len(aqi_history) >= 12 else aqi_history[-1],
-                    np.mean(aqi_history[-24:]),
-                    np.std(aqi_history[-24:]) if len(aqi_history) > 1 else 0.0,
-                ])
-                row  = band_scaler.transform([np.concatenate([X_scaled, ar, [h / MAX_H]])])[0].reshape(1, -1)
-                pred = max(0, float(models[h].predict(row)[0]))
-                band = "short" if h <= 8 else ("medium" if h <= 24 else "long")
-                forecasts.append({
-                    "hour": h,
-                    "datetime": (last_dt + timedelta(hours=h)).isoformat(),
-                    "predicted_aqi": round(pred, 1),
-                    "band": band,
-                    "category": aqi_label(pred),
-                    "color": aqi_color(pred),
-                })
-                continue
 
-            pred = max(0, float(models[h].predict([row])[0]))
+        try:
+            base    = X_scaled[vi]
+            fc_vec  = live_fc.get(h, np.zeros(len(fci), dtype=np.float32))
+            enc     = horizon_encoding(h)
+            row     = np.concatenate([base, fc_vec, enc]).reshape(1, -1)
+
+            pred = max(0.0, float(models[h].predict(row)[0]))
             band = "short" if h <= 8 else ("medium" if h <= 24 else "long")
             forecasts.append({
-                "hour": h,
-                "datetime": (last_dt + timedelta(hours=h)).isoformat(),
+                "hour":          h,
+                "datetime":      (last_dt + timedelta(hours=h)).isoformat(),
                 "predicted_aqi": round(pred, 1),
-                "band": band,
-                "category": aqi_label(pred),
-                "color": aqi_color(pred),
+                "band":          band,
+                "category":      aqi_label(pred),
+                "color":         aqi_color(pred),
             })
-        except Exception:
+        except Exception as exc:
+            print(f"  Forecast error at t+{h}h: {exc}")
             continue
 
     return forecasts
@@ -367,15 +401,40 @@ def _fetch_feature_df(recent_days: int = 5, fallback_hours: int = 72) -> tuple[p
 
 @app.get("/")
 async def root():
-    index = _ROOT / "index.html"
-    if not index.is_file():
-        raise HTTPException(404, "index.html not found")
-    return FileResponse(index)
+    """Root endpoint — returns API info. Required by Hugging Face health checks."""
+    return {
+        "name": "AQI SeekAI API",
+        "version": "1.0.0",
+        "status": "running",
+        "endpoints": ["/health", "/api/current", "/api/forecast",
+                      "/api/historical", "/api/eda", "/api/model-info"],
+    }
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "time_pkt": get_pkt_now().isoformat()}
+
+
+@app.post("/api/reload-models")
+async def reload_models():
+    """
+    Force the backend to reload models from MongoDB.
+    Call this after running Model_Retrain_pipeline.py so the new
+    models are picked up without restarting the server.
+    """
+    global _model_cache
+    _model_cache = {}
+    try:
+        cache = await run_in_threadpool(load_models)
+        return {
+            "status":      "reloaded",
+            "model_name":  cache.get("model_name", "unknown"),
+            "horizons":    len(cache["models"]),
+            "features":    len(cache["feature_cols"]),
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Reload failed: {e}")
 
 
 @app.get("/api/current")
@@ -568,34 +627,41 @@ async def get_model_info():
         cache = await run_in_threadpool(load_models)
         training_logs = cache["training_logs"]
         feature_cols  = cache["feature_cols"]
+        model_name    = cache.get("model_name", "unknown")
 
         rows = []
         for h in KEY_HORIZONS:
             m    = training_logs.get(h, {})
             band = "Short" if h <= 8 else ("Medium" if h <= 24 else "Long")
             rows.append({
-                "horizon":  f"t+{h}h",
-                "band":     band,
-                "r2":       round(float(m["r2"]),   4) if isinstance(m.get("r2"),   (int, float)) else None,
-                "rmse":     round(float(m["rmse"]),  2) if isinstance(m.get("rmse"), (int, float)) else None,
-                "mae":      round(float(m["mae"]),   2) if isinstance(m.get("mae"),  (int, float)) else None,
-                "samples":  int(m["samples"])           if isinstance(m.get("samples"), int)       else None,
+                "horizon": f"t+{h}h",
+                "band":    band,
+                "r2":      round(float(m["r2"]),   4) if isinstance(m.get("r2"),      (int, float)) else None,
+                "rmse":    round(float(m["rmse"]),  2) if isinstance(m.get("rmse"),    (int, float)) else None,
+                "mae":     round(float(m["mae"]),   2) if isinstance(m.get("mae"),     (int, float)) else None,
+                "samples": int(m["samples"])            if isinstance(m.get("samples"), int)         else None,
             })
+
+        algo_map = {
+            "lightgbm":     "LightGBM (Gradient Boosted Trees)",
+            "xgboost":      "XGBoost (Gradient Boosted Trees)",
+            "random_forest":"Random Forest",
+        }
 
         return {
             "metrics":       rows,
             "feature_count": len(feature_cols),
             "features":      feature_cols,
             "architecture": {
-                "algorithm":    "LightGBM (Gradient Boosted Trees)",
-                "strategy":     "Per-horizon model (18 models for t+1h to t+72h)",
-                "scaling":      "RobustScaler (fit on train only)",
-                "lag_exclusion":"Lags shorter than horizon excluded per model",
-                "weather_injection": "Open-Meteo 72h forecast injected at inference",
-                "early_stopping": "10% internal validation, 50 rounds patience",
-                "short_params": "1500 trees, lr=0.01, leaves=63",
-                "medium_params":"800 trees, lr=0.03, leaves=47",
-                "long_params":  "500 trees, lr=0.05, leaves=15",
+                "algorithm":          algo_map.get(model_name, model_name),
+                "model_name":         model_name,
+                "strategy":           "Per-horizon model (18 models for t+1h to t+72h)",
+                "selection":          "Best of LightGBM / XGBoost / RandomForest by avg RMSE",
+                "scaling":            "RobustScaler (fit on train only)",
+                "lag_exclusion":      "Lags shorter than horizon excluded per model",
+                "weather_injection":  "Open-Meteo 72h forecast injected at inference",
+                "early_stopping":     "10% internal validation, 50 rounds patience",
+                "pipeline_version":   "v7",
             },
         }
     except Exception as e:
