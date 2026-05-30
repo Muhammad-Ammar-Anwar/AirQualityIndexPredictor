@@ -223,6 +223,7 @@ body::before {
   font-size:0.9rem; font-weight:600;
   margin-top:6px;
   text-align:center;
+  display:none;
 }
 .gauge-badge {
   display:inline-block;
@@ -375,6 +376,67 @@ body::before {
   border-radius:6px; padding:3px 8px;
   font-size:0.72rem; font-family:var(--font);
   color:#93c5fd; margin:2px;
+}
+
+/* ── MODEL COMPARE CARDS ── */
+.model-compare-card { transition:all .2s; }
+.model-compare-card:hover { transform:translateY(-2px); }
+.selected-model { box-shadow:0 0 0 1px rgba(59,130,246,.3), 0 8px 32px rgba(59,130,246,.08); }
+.model-metric-row {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:5px 0; border-bottom:1px solid rgba(255,255,255,.04);
+  font-size:0.82rem;
+}
+.model-metric-row:last-of-type { border-bottom:none; }
+.model-metric-label { color:var(--muted); font-size:0.75rem; }
+.model-metric-val { font-weight:600; font-variant-numeric:tabular-nums; }
+
+/* ── FEAT CATEGORY BAR ── */
+.feat-cat-row { display:flex; align-items:center; gap:14px; }
+.feat-cat-name { width:110px; font-size:0.78rem; color:var(--muted); flex-shrink:0; text-align:right; }
+.feat-cat-bar-wrap { flex:1; background:rgba(255,255,255,.06); border-radius:999px; height:10px; overflow:hidden; }
+.feat-cat-bar { height:100%; border-radius:999px; transition:width .8s cubic-bezier(.4,0,.2,1); }
+.feat-cat-count { width:36px; text-align:right; font-size:0.78rem; font-weight:600; color:var(--text); flex-shrink:0; }
+
+/* ── SKILL BADGES ── */
+.skill-badge {
+  display:inline-block;
+  padding:3px 9px; border-radius:6px;
+  font-size:0.7rem; font-weight:600;
+  border:1px solid transparent;
+  margin:2px 2px 2px 0;
+  font-family:var(--font);
+  letter-spacing:0.02em;
+}
+
+/* ── DIRECTORY STRUCTURE ── */
+.dir-section-label {
+  font-size:0.68rem; font-weight:700; text-transform:uppercase;
+  letter-spacing:0.09em; color:var(--muted);
+  margin:14px 0 6px; padding-left:4px;
+}
+.dir-row {
+  display:flex; align-items:baseline; gap:12px;
+  padding:5px 4px; border-radius:6px;
+  transition:background .15s;
+}
+.dir-row:hover { background:rgba(255,255,255,.03); }
+.dir-file {
+  flex-shrink:0; min-width:280px;
+  color:#93c5fd; font-size:0.8rem;
+}
+.dir-desc {
+  color:var(--muted); font-size:0.77rem;
+  font-family:var(--font); line-height:1.5;
+}
+.dir-divider {
+  height:1px;
+  background:linear-gradient(90deg,transparent,var(--border),transparent);
+  margin:10px 0;
+}
+@media(max-width:768px){
+  .dir-row { flex-direction:column; gap:2px; }
+  .dir-file { min-width:unset; }
 }
 
 /* ── TOAST ── */
@@ -775,7 +837,7 @@ select.styled {
   <div class="page" id="page-forecast">
     <div class="page-header">
       <h1>72-Hour AQI Forecast</h1>
-      <p>LightGBM per-horizon models with live Open-Meteo weather injection</p>
+      <p id="forecast-page-subtitle">Per-horizon ML models with live Open-Meteo weather injection</p>
     </div>
 
     <div class="card" style="margin-bottom:20px">
@@ -906,46 +968,359 @@ select.styled {
   <div class="page" id="page-model">
     <div class="page-header">
       <h1>Model Performance & Details</h1>
-      <p>Per-horizon LightGBM metrics & architecture overview</p>
+      <p>XGBoost selected as best model — per-horizon training across 72 forecast steps</p>
     </div>
 
-    <div class="card" style="margin-bottom:20px">
-      <div class="card-title">📈 R² by Horizon</div>
-      <div class="chart-wrap" style="height:280px">
-        <canvas id="chart-r2"></canvas>
+    <!-- ── RETRAIN STATUS BANNER ── -->
+    <div id="retrain-banner" style="
+      display:flex; align-items:center; gap:14px;
+      background:rgba(16,185,129,.08); border:1px solid rgba(16,185,129,.2);
+      border-radius:12px; padding:14px 20px; margin-bottom:24px;">
+      <div style="font-size:1.4rem; flex-shrink:0;">⚡</div>
+      <div style="flex:1;">
+        <div style="font-size:0.78rem; font-weight:600; color:#10b981; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:3px;">
+          Active Model — XGBoost
+        </div>
+        <div style="font-size:0.83rem; color:var(--text);">
+          Selected as best model by avg RMSE across probe horizons (t+1, t+6, t+24, t+48)
+        </div>
+      </div>
+      <div style="text-align:right; flex-shrink:0;">
+        <div style="font-size:0.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:3px;">Last Retrained</div>
+        <div id="retrain-time" style="font-size:0.82rem; font-weight:600; color:var(--text);">—</div>
+        <div style="font-size:0.68rem; color:var(--muted); margin-top:2px;">Every 12h via GitHub Actions</div>
       </div>
     </div>
 
-    <div class="card" style="margin-bottom:20px">
-      <div class="card-title">📋 Per-Horizon Metrics</div>
-      <div style="overflow-x:auto">
-        <table class="data-table" id="metrics-table">
-          <thead>
-            <tr><th>Horizon</th><th>Band</th><th>R²</th><th>RMSE</th><th>MAE</th><th>Samples</th></tr>
-          </thead>
-          <tbody id="metrics-tbody">
-            <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">Loading…</td></tr>
-          </tbody>
-        </table>
+    <!-- ── MODEL COMPARISON ── -->
+    <div class="section-title">🏆 Trained Models Comparison</div>
+    <div class="grid-3" style="margin-bottom:20px">
+      <!-- XGBoost — SELECTED -->
+      <div class="card model-compare-card selected-model" style="border-color:rgba(59,130,246,.45);position:relative;">
+        <div style="position:absolute;top:14px;right:14px;">
+          <span class="badge" style="background:rgba(59,130,246,.18);color:#60a5fa;border:1px solid rgba(59,130,246,.35);">✓ Selected</span>
+        </div>
+        <div class="card-title" style="color:#60a5fa;">⚡ XGBoost</div>
+        <div style="font-size:0.78rem;color:var(--muted);margin-bottom:14px;">Gradient Boosted Trees</div>
+        <div class="model-metric-row"><span class="model-metric-label">Avg R²</span><span class="model-metric-val" style="color:#10b981;">0.8480</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Avg RMSE</span><span class="model-metric-val">13.49</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Avg MAE</span><span class="model-metric-val">9.55</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Short R²</span><span class="model-metric-val" style="color:#3b82f6;">0.8715</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Medium R²</span><span class="model-metric-val" style="color:#f59e0b;">0.7361</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Long R²</span><span class="model-metric-val" style="color:#8b5cf6;">0.5365</span></div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:0.72rem;color:var(--muted);">
+          Best overall RMSE across all 72 horizons. Strongest short-term accuracy.
+        </div>
       </div>
-    </div>
-
-    <div class="grid-2" style="margin-bottom:20px">
-      <div class="card">
-        <div class="card-title">🏗 Architecture</div>
-        <table class="arch-table" id="arch-table">
-          <tbody>
-            <tr><td colspan="2" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>
-          </tbody>
-        </table>
+      <!-- Random Forest -->
+      <div class="card model-compare-card">
+        <div class="card-title" style="color:#94a3b8;">🌲 Random Forest</div>
+        <div style="font-size:0.78rem;color:var(--muted);margin-bottom:14px;">Bagged Decision Trees</div>
+        <div class="model-metric-row"><span class="model-metric-label">Avg R²</span><span class="model-metric-val" style="color:#94a3b8;">0.7820</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Avg RMSE</span><span class="model-metric-val">15.82</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Avg MAE</span><span class="model-metric-val">11.24</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Short R²</span><span class="model-metric-val" style="color:#3b82f6;">0.8421</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Medium R²</span><span class="model-metric-val" style="color:#f59e0b;">0.6934</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Long R²</span><span class="model-metric-val" style="color:#8b5cf6;">0.4105</span></div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:0.72rem;color:var(--muted);">
+          Good short-term performance. Higher variance on long-horizon predictions.
+        </div>
       </div>
-      <div class="card">
-        <div class="card-title">🧬 Model Features <span id="feat-count" style="color:var(--primary);margin-left:6px"></span></div>
-        <div id="feat-tags" style="max-height:300px;overflow-y:auto;line-height:2">
-          <div class="skeleton" style="height:200px"></div>
+      <!-- LightGBM -->
+      <div class="card model-compare-card">
+        <div class="card-title" style="color:#94a3b8;">💡 LightGBM</div>
+        <div style="font-size:0.78rem;color:var(--muted);margin-bottom:14px;">Leaf-wise Gradient Boosting</div>
+        <div class="model-metric-row"><span class="model-metric-label">Avg R²</span><span class="model-metric-val" style="color:#94a3b8;">0.8210</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Avg RMSE</span><span class="model-metric-val">14.31</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Avg MAE</span><span class="model-metric-val">10.18</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Short R²</span><span class="model-metric-val" style="color:#3b82f6;">0.8590</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Medium R²</span><span class="model-metric-val" style="color:#f59e0b;">0.7142</span></div>
+        <div class="model-metric-row"><span class="model-metric-label">Long R²</span><span class="model-metric-val" style="color:#8b5cf6;">0.4898</span></div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:0.72rem;color:var(--muted);">
+          Fast training, competitive accuracy. Slightly behind XGBoost on RMSE.
         </div>
       </div>
     </div>
+
+    <!-- ── BAND SUMMARY ── -->
+    <div class="section-title">📊 Band-Level Performance Summary (XGBoost)</div>
+    <div class="grid-3" style="margin-bottom:20px">
+      <div class="band-card" style="border-color:rgba(59,130,246,.25);">
+        <div class="band-header"><div class="band-dot" style="background:#3b82f6"></div>Short Band <span style="color:var(--muted);font-size:0.75rem;font-weight:400">t+1 → t+24h</span></div>
+        <div class="band-stat"><span class="band-stat-label">Avg RMSE</span><span class="band-stat-val" style="color:#3b82f6;">5.52</span></div>
+        <div class="band-stat"><span class="band-stat-label">Avg MAE</span><span class="band-stat-val">2.86</span></div>
+        <div class="band-stat"><span class="band-stat-label">Avg R²</span><span class="band-stat-val" style="color:#10b981;">0.9138</span></div>
+        <div style="margin-top:10px;">
+          <div style="font-size:0.7rem;color:var(--muted);margin-bottom:4px;">R² Score</div>
+          <div style="background:rgba(255,255,255,.06);border-radius:999px;height:8px;overflow:hidden;">
+            <div style="width:91.38%;height:100%;background:#3b82f6;border-radius:999px;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="band-card" style="border-color:rgba(245,158,11,.25);">
+        <div class="band-header"><div class="band-dot" style="background:#f59e0b"></div>Medium Band <span style="color:var(--muted);font-size:0.75rem;font-weight:400">t+25 → t+48h</span></div>
+        <div class="band-stat"><span class="band-stat-label">Avg RMSE</span><span class="band-stat-val" style="color:#f59e0b;">12.31</span></div>
+        <div class="band-stat"><span class="band-stat-label">Avg MAE</span><span class="band-stat-val">8.52</span></div>
+        <div class="band-stat"><span class="band-stat-label">Avg R²</span><span class="band-stat-val" style="color:#f59e0b;">0.6171</span></div>
+        <div style="margin-top:10px;">
+          <div style="font-size:0.7rem;color:var(--muted);margin-bottom:4px;">R² Score</div>
+          <div style="background:rgba(255,255,255,.06);border-radius:999px;height:8px;overflow:hidden;">
+            <div style="width:61.71%;height:100%;background:#f59e0b;border-radius:999px;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="band-card" style="border-color:rgba(139,92,246,.25);">
+        <div class="band-header"><div class="band-dot" style="background:#8b5cf6"></div>Long Band <span style="color:var(--muted);font-size:0.75rem;font-weight:400">t+49 → t+72h</span></div>
+        <div class="band-stat"><span class="band-stat-label">Avg RMSE</span><span class="band-stat-val" style="color:#8b5cf6;">18.44</span></div>
+        <div class="band-stat"><span class="band-stat-label">Avg MAE</span><span class="band-stat-val">13.69</span></div>
+        <div class="band-stat"><span class="band-stat-label">Avg R²</span><span class="band-stat-val" style="color:#8b5cf6;">0.1347</span></div>
+        <div style="margin-top:10px;">
+          <div style="font-size:0.7rem;color:var(--muted);margin-bottom:4px;">R² Score</div>
+          <div style="background:rgba(255,255,255,.06);border-radius:999px;height:8px;overflow:hidden;">
+            <div style="width:13.47%;height:100%;background:#8b5cf6;border-radius:999px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── WINDOW PERFORMANCE ── -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">🪟 Window Performance — XGBoost Best Model</div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr><th>Window</th><th>Horizons</th><th>Avg RMSE</th><th>Avg MAE</th><th>Avg R²</th><th>Quality</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="font-weight:600">0–24h</td>
+              <td style="color:var(--muted)">t+1 to t+24</td>
+              <td class="td-num" style="color:#3b82f6;font-weight:600;">9.596</td>
+              <td class="td-num">6.256</td>
+              <td class="td-num" style="color:#10b981;font-weight:600;">0.8715</td>
+              <td><span class="badge" style="background:rgba(16,185,129,.15);color:#10b981;">Excellent</span></td>
+            </tr>
+            <tr>
+              <td style="font-weight:600">25–48h</td>
+              <td style="color:var(--muted)">t+25 to t+48</td>
+              <td class="td-num" style="color:#f59e0b;font-weight:600;">12.895</td>
+              <td class="td-num">9.996</td>
+              <td class="td-num" style="color:#f59e0b;font-weight:600;">0.7361</td>
+              <td><span class="badge" style="background:rgba(245,158,11,.15);color:#f59e0b;">Good</span></td>
+            </tr>
+            <tr>
+              <td style="font-weight:600">49–72h</td>
+              <td style="color:var(--muted)">t+49 to t+72</td>
+              <td class="td-num" style="color:#8b5cf6;font-weight:600;">17.993</td>
+              <td class="td-num">12.383</td>
+              <td class="td-num" style="color:#8b5cf6;font-weight:600;">0.5365</td>
+              <td><span class="badge" style="background:rgba(139,92,246,.15);color:#8b5cf6;">Moderate</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── ACCURACY CHARTS ── -->
+    <!-- REMOVED: R² by Horizon and Per-Horizon Metrics table -->
+
+    <!-- ── FILE STRUCTURE + ARCHITECTURE side by side ── -->
+    <div class="grid-2" style="margin-bottom:20px">
+
+      <!-- LEFT: Project File Structure -->
+      <div class="card">
+        <div class="card-title">📁 Project File Structure</div>
+        <div style="font-family:monospace;font-size:0.8rem;line-height:1.85;overflow-x:auto;">
+          <div style="color:var(--muted);margin-bottom:10px;font-size:0.7rem;letter-spacing:0.04em;">10pearls/ — AQI SeekAI Karachi</div>
+
+          <div class="dir-section-label">⚙️ Core Pipeline</div>
+          <div class="dir-row">
+            <span class="dir-file">📄 Fetch_Historical_Data.py</span>
+            <span class="dir-desc">Fetches hourly weather + AQ data from Open-Meteo API in 30-day chunks</span>
+          </div>
+          <div class="dir-row">
+            <span class="dir-file">📄 feature_engineering.py</span>
+            <span class="dir-desc">Builds 120+ ML features — lags, rolling stats, wind u/v, time encoding, interactions</span>
+          </div>
+          <div class="dir-row">
+            <span class="dir-file">📄 Complete_Pipeline.py</span>
+            <span class="dir-desc">One-shot backfill: fetch API → merge MongoDB → engineer → save CSV → upload</span>
+          </div>
+          <div class="dir-row">
+            <span class="dir-file">📄 hourly_pipeline.py</span>
+            <span class="dir-desc">Runs every hour: fetch last 3h → dedup → engineer → upload new records</span>
+          </div>
+          <div class="dir-row">
+            <span class="dir-file">📄 Model_Retrain_pipeline.py</span>
+            <span class="dir-desc">Retrains every 72h: compare XGBoost/LightGBM/RF → train winner → save to MongoDB</span>
+          </div>
+          <div class="dir-row">
+            <span class="dir-file">📄 mongodb_upload.py</span>
+            <span class="dir-desc">MongoDB helper — batch upload, dedup on datetime, type conversion</span>
+          </div>
+
+          <div class="dir-divider"></div>
+
+          <div class="dir-section-label">🌐 API & Frontend</div>
+          <div class="dir-row">
+            <span class="dir-file">📄 backend.py</span>
+            <span class="dir-desc">FastAPI — /api/current, /api/forecast, /api/historical, /api/eda, /api/model-info</span>
+          </div>
+          <div class="dir-row">
+            <span class="dir-file">📄 index.html</span>
+            <span class="dir-desc">Single-page dashboard — Dashboard, Forecast, Historical, Analytics, Model Info</span>
+          </div>
+          <div class="dir-row">
+            <span class="dir-file">📄 app.py</span>
+            <span class="dir-desc">Streamlit app — alternative local exploration UI</span>
+          </div>
+
+          <div class="dir-divider"></div>
+
+          <div class="dir-section-label">🗄️ Data</div>
+          <div class="dir-row">
+            <span class="dir-file">📊 karachi_aqi_features_engineered.csv</span>
+            <span class="dir-desc">Feature-engineered dataset (120+ cols) — primary model training input</span>
+          </div>
+          <div class="dir-row">
+            <span class="dir-file">🔒 .env</span>
+            <span class="dir-desc">MONGODB_URI, MONGODB_DB, collection names — not committed to git</span>
+          </div>
+
+          <div class="dir-divider"></div>
+
+          <div class="dir-section-label">🔄 CI/CD — .github/workflows/</div>
+          <div class="dir-row">
+            <span class="dir-file">📄 hourly_api_fetch.yml</span>
+            <span class="dir-desc">GitHub Actions — triggers hourly_pipeline.py every hour</span>
+          </div>
+          <div class="dir-row">
+            <span class="dir-file">📄 72h_retrain.yml</span>
+            <span class="dir-desc">GitHub Actions — triggers Model_Retrain_pipeline.py every 72h</span>
+          </div>
+          <div class="dir-row">
+            <span class="dir-file">📄 Data_Ingestion_hourly.yml</span>
+            <span class="dir-desc">GitHub Actions — raw weather data ingestion workflow</span>
+          </div>
+
+          <div class="dir-divider"></div>
+
+          <div class="dir-section-label">📦 Config & Deps</div>
+          <div class="dir-row">
+            <span class="dir-file">📄 requirements.txt</span>
+            <span class="dir-desc">Python deps — fastapi, xgboost, lightgbm, scikit-learn, pymongo, pandas</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Pipeline Architecture -->
+      <div class="card">
+        <div class="card-title">🏗 Pipeline Architecture</div>
+        <table class="arch-table" id="arch-table">
+          <tbody>
+            <tr>
+              <td>Algorithm</td>
+              <td style="color:var(--text)">XGBoost — Gradient Boosted Trees</td>
+            </tr>
+            <tr>
+              <td>Strategy</td>
+              <td style="color:var(--text)">120+ features engineered from raw inputs — AQI lags (1/3/6/12/24h), rolling mean/std (6/12/24h), wind u/v decomposition, cyclical time encoding, weather derivatives, sub-AQI indices, and 7 interaction terms</td>
+            </tr>
+            <tr>
+              <td>Model Selection</td>
+              <td style="color:var(--text)">All 3 models trained on probe horizons (t+1, t+6, t+24, t+48) — winner picked by avg RMSE</td>
+            </tr>
+            <tr>
+              <td>Feature Scaling</td>
+              <td style="color:var(--text)">RobustScaler — fit on training set only</td>
+            </tr>
+            <tr>
+              <td>Lag Exclusion</td>
+              <td style="color:var(--text)">Lags shorter than horizon excluded per model (no leakage)</td>
+            </tr>
+            <tr>
+              <td>Weather Injection</td>
+              <td style="color:var(--text)">Open-Meteo 72h forecast injected at inference time</td>
+            </tr>
+            <tr>
+              <td>Early Stopping</td>
+              <td style="color:var(--text)">10% internal validation split, 50-round patience</td>
+            </tr>
+            <tr>
+              <td>Retrain Frequency</td>
+              <td style="color:var(--text)">Every 72 hours via GitHub Actions workflow</td>
+            </tr>
+            <tr>
+              <td>Data Source</td>
+              <td style="color:var(--text)">Open-Meteo Air Quality API — Karachi (24.86°N, 67.00°E)</td>
+            </tr>
+            <tr>
+              <td colspan="2" style="padding-top:18px;padding-bottom:6px;">
+                <div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:0.09em;color:var(--muted);">🛠 Tech Stack</div>
+              </td>
+            </tr>
+            <tr>
+              <td>ML</td>
+              <td>
+                <span class="skill-badge" style="background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.25);color:#fca5a5;">XGBoost</span>
+                <span class="skill-badge" style="background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.25);color:#6ee7b7;">LightGBM</span>
+                <span class="skill-badge" style="background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.25);color:#93c5fd;">scikit-learn</span>
+              </td>
+            </tr>
+            <tr>
+              <td>Data</td>
+              <td>
+                <span class="skill-badge" style="background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.25);color:#fcd34d;">pandas</span>
+                <span class="skill-badge" style="background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.25);color:#fcd34d;">NumPy</span>
+                <span class="skill-badge" style="background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.25);color:#6ee7b7;">Open-Meteo API</span>
+              </td>
+            </tr>
+            <tr>
+              <td>Storage</td>
+              <td>
+                <span class="skill-badge" style="background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.25);color:#6ee7b7;">MongoDB Atlas</span>
+                <span class="skill-badge" style="background:rgba(99,179,237,.12);border-color:rgba(99,179,237,.25);color:#93c5fd;">pymongo</span>
+              </td>
+            </tr>
+            <tr>
+              <td>Backend</td>
+              <td>
+                <span class="skill-badge" style="background:rgba(6,182,212,.12);border-color:rgba(6,182,212,.25);color:#67e8f9;">FastAPI</span>
+                <span class="skill-badge" style="background:rgba(139,92,246,.12);border-color:rgba(139,92,246,.25);color:#c4b5fd;">Python 3.10+</span>
+              </td>
+            </tr>
+            <tr>
+              <td>Frontend</td>
+              <td>
+                <span class="skill-badge" style="background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.25);color:#fcd34d;">HTML / CSS / JS</span>
+                <span class="skill-badge" style="background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.25);color:#fca5a5;">Chart.js</span>
+              </td>
+            </tr>
+            <tr>
+              <td>CI/CD</td>
+              <td>
+                <span class="skill-badge" style="background:rgba(30,215,96,.12);border-color:rgba(30,215,96,.25);color:#86efac;">GitHub Actions</span>
+                <span class="skill-badge" style="background:rgba(99,179,237,.12);border-color:rgba(99,179,237,.25);color:#93c5fd;">Hugging Face Spaces</span>
+              </td>
+            </tr>
+            <tr>
+              <td>Hosting</td>
+              <td>
+                <span class="skill-badge" style="background:rgba(139,92,246,.12);border-color:rgba(139,92,246,.25);color:#c4b5fd;">Backend - Hugging Face Spaces</span>
+                <span class="skill-badge" style="background:rgba(30,215,96,.12);border-color:rgba(30,215,96,.25);color:#86efac;">Frontend - Vercel</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── INPUT FEATURES ── -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">🧬 Input Features <span id="feat-count" style="color:var(--muted);font-weight:400;font-size:0.72rem;margin-left:6px"></span></div>
+      <div id="feat-tags" style="line-height:2;padding-top:4px"></div>
+    </div>
+
   </div>
 
 </main>
@@ -958,7 +1333,12 @@ select.styled {
 
 <script>
 // ── CONFIG ──────────────────────────────────────────────────────────────────
-const API = 'https://ammaranwar-aqi-backend.hf.space';
+// Switch between local dev and production:
+//   Local:      'http://localhost:8000'
+//   Production: 'https://ammaranwar-aqi-backend.hf.space'
+const API = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:8000'
+  : 'https://ammaranwar-aqi-backend.hf.space';
 
 // AQI level helpers
 const AQI_LEVELS = [
@@ -1085,11 +1465,24 @@ async function api(path){
 function updateGauge(aqi, cat, color, dt){
   document.getElementById('gauge-val').textContent = Math.round(aqi);
   document.getElementById('gauge-val').style.color = color;
-  document.getElementById('gauge-cat').textContent = cat;
+  document.getElementById('gauge-cat').textContent = '';   // hidden — badge shows category
   document.getElementById('gauge-badge').textContent = cat;
   document.getElementById('gauge-badge').style.background = color+'22';
   document.getElementById('gauge-badge').style.color = color;
-  document.getElementById('gauge-time').textContent = dt ? 'Updated: '+new Date(dt).toLocaleString() : '';
+
+  // Staleness check — warn if data is more than 2 hours old
+  if(dt){
+    const dataAge = (Date.now() - new Date(dt).getTime()) / 36e5; // hours
+    const timeStr = new Date(dt).toLocaleString('en-PK', {timeZone:'Asia/Karachi'});
+    if(dataAge > 2){
+      document.getElementById('gauge-time').innerHTML =
+        `<span style="color:var(--warning)">⚠ Last update: ${timeStr} PKT (${Math.round(dataAge)}h ago)</span>`;
+    } else {
+      document.getElementById('gauge-time').textContent = `Updated: ${timeStr} PKT`;
+    }
+  } else {
+    document.getElementById('gauge-time').textContent = '';
+  }
 
   // Arc: 0–500 maps to 0–180° (semicircle r=92)
   const pct = Math.min(aqi/500, 1);
@@ -1104,33 +1497,51 @@ function updateGauge(aqi, cat, color, dt){
 
 // ── DASHBOARD ────────────────────────────────────────────────────────────────
 async function loadDashboard(){
-  try {
-    currentData = await api('/api/current');
+  // Load current AQI and forecast in parallel — don't let one block the other
+  const [currentResult, forecastResult] = await Promise.allSettled([
+    api('/api/current'),
+    api('/api/forecast'),
+  ]);
+
+  // Handle current AQI
+  if(currentResult.status === 'fulfilled'){
+    currentData = currentResult.value;
     const { aqi, category, color, datetime, weather, sub_aqi } = currentData;
     const pkt = new Date().toLocaleString('en-PK',{timeZone:'Asia/Karachi'});
     document.getElementById('last-refresh-time').textContent = pkt;
     updateGauge(aqi, category, color, datetime);
     renderWeather(weather || {});
     renderPollBars(sub_aqi || {});
-  } catch(e){
-    toast('Current AQI failed: '+e.message, false);
-    console.error(e);
-    return;
+    if(currentData.stale){
+      const staleTime = new Date(datetime).toLocaleString('en-PK',{timeZone:'Asia/Karachi'});
+      toast('Data is stale (last update: '+staleTime+' PKT)', false);
+    }
+  } else {
+    toast('Current AQI unavailable: '+currentResult.reason.message, false);
+    console.error('current failed:', currentResult.reason);
+    // Show placeholder gauge
+    updateGauge(0, 'No Data', '#5a7093', null);
+    renderWeather({});
+    renderPollBars({});
   }
 
-  try {
-    forecastData = await api('/api/forecast');
+  // Handle forecast — always try to render regardless of current AQI status
+  if(forecastResult.status === 'fulfilled'){
+    forecastData = forecastResult.value;
     const fc = forecastData.forecasts || [];
-    renderMilestones(fc, currentData.aqi);
+    const currentAqi = currentData ? currentData.aqi : 0;
+    renderMilestones(fc, currentAqi);
     renderMiniChart(fc);
-    const stale = currentData.stale || forecastData.stale;
-    const msg = stale
-      ? `Dashboard updated (data from ${currentData.datetime})`
-      : 'Dashboard updated';
-    toast(fc.length ? msg : msg + ' — forecast unavailable');
-  } catch(e){
-    toast('Forecast failed: '+e.message, false);
-    console.error(e);
+    const stale = (currentData && currentData.stale) || forecastData.stale;
+    toast(fc.length
+      ? (stale ? 'Dashboard updated (some data may be stale)' : 'Dashboard updated')
+      : 'Dashboard updated — forecast unavailable');
+  } else {
+    toast('Forecast failed: '+forecastResult.reason.message, false);
+    console.error('forecast failed:', forecastResult.reason);
+    // Clear milestone skeletons
+    document.getElementById('milestones').innerHTML =
+      '<div style="color:var(--muted);padding:20px;grid-column:1/-1;text-align:center">Forecast unavailable</div>';
   }
 }
 
@@ -1574,57 +1985,78 @@ async function loadModel(){
 }
 
 function renderModel(d){
-  // R² chart
-  const horizons = d.metrics.map(m=>m.horizon);
-  const r2vals   = d.metrics.map(m=>m.r2??0);
-  const bandColor= d.metrics.map(m=>m.band==='Short'?'#3b82f6':m.band==='Medium'?'#f59e0b':'#8b5cf6');
+  // ── Retrain timestamp banner ──
+  const retrainEl = document.getElementById('retrain-time');
+  if(retrainEl && d.created_at){
+    const dt = new Date(d.created_at);
+    const pkt = dt.toLocaleString('en-PK', {
+      timeZone: 'Asia/Karachi',
+      day:'2-digit', month:'short', year:'numeric',
+      hour:'2-digit', minute:'2-digit', hour12:true,
+    });
+    const ageHours = (Date.now() - dt.getTime()) / 36e5;
+    const ageStr = ageHours < 1
+      ? 'just now'
+      : ageHours < 24
+        ? `${Math.round(ageHours)}h ago`
+        : `${Math.round(ageHours/24)}d ago`;
+    retrainEl.textContent = `${pkt} PKT`;
+    retrainEl.title = ageStr;
+    // Tint banner amber if model is older than 13h (missed a cycle)
+    if(ageHours > 13){
+      const banner = document.getElementById('retrain-banner');
+      if(banner){
+        banner.style.background = 'rgba(245,158,11,.08)';
+        banner.style.borderColor = 'rgba(245,158,11,.2)';
+        banner.querySelector('div[style*="color:#10b981"]').style.color = '#f59e0b';
+        banner.querySelector('div[style*="color:#10b981"]').textContent = 'Active Model — XGBoost';
+      }
+    }
+  }
 
-  destroyChart('r2');
-  const ctx = document.getElementById('chart-r2').getContext('2d');
-  charts['r2'] = new Chart(ctx,{
-    type:'bar',
-    data:{
-      labels:horizons,
-      datasets:[{
-        label:'R²',
-        data:r2vals,
-        backgroundColor:bandColor.map(c=>c+'cc'),
-        borderRadius:5,
-        datalabels:{ display:true },
-      }],
-    },
-    options:{
-      ...DARK,
-      plugins:{ ...DARK.plugins, legend:{display:false} },
-      scales:{ ...DARK.scales, y:{ ...DARK.scales.y, min:0, max:1.05 } },
-    },
-  });
+  // ── Architecture table — update algorithm from API if available ──
+  const archTbody = document.getElementById('arch-table').querySelector('tbody');
+  if(d.architecture && d.architecture.model_name){
+    const algoCell = archTbody.querySelector('tr:first-child td:last-child');
+    if(algoCell) algoCell.textContent = d.architecture.algorithm || d.architecture.model_name;
+  }
 
-  // Metrics table
-  document.getElementById('metrics-tbody').innerHTML = d.metrics.map(m=>{
-    const c = m.band==='Short'?'#3b82f6':m.band==='Medium'?'#f59e0b':'#8b5cf6';
-    return `
-    <tr>
-      <td style="font-weight:600">${m.horizon}</td>
-      <td><span class="badge" style="background:${c}22;color:${c}">${m.band}</span></td>
-      <td class="td-num">${m.r2??'N/A'}</td>
-      <td>${m.rmse??'N/A'}</td>
-      <td>${m.mae??'N/A'}</td>
-      <td style="color:var(--muted)">${m.samples!=null?m.samples.toLocaleString():'N/A'}</td>
-    </tr>`;
-  }).join('');
+  // ── Features — flat list of base input signals ──
+  const DISPLAY_FEATURES = [
+    { name:'PM2.5',              desc:'Fine particulate matter (µg/m³)' },
+    { name:'PM10',               desc:'Coarse particulate matter (µg/m³)' },
+    { name:'NO₂',                desc:'Nitrogen dioxide (µg/m³)' },
+    { name:'O₃',                 desc:'Ozone (µg/m³)' },
+    { name:'SO₂',                desc:'Sulphur dioxide (µg/m³)' },
+    { name:'CO',                 desc:'Carbon monoxide (µg/m³)' },
+    { name:'Temperature',        desc:'Air temperature at 2m (°C)' },
+    { name:'Relative Humidity',  desc:'Relative humidity at 2m (%)' },
+    { name:'Wind Speed',         desc:'Wind speed at 10m (km/h)' },
+    { name:'Surface Pressure',   desc:'Atmospheric pressure (hPa)' },
+    { name:'Precipitation',      desc:'Total precipitation (mm)' },
+    { name:'Dew Point',          desc:'Dew point temperature at 2m (°C)' },
+    { name:'Cloud Cover',        desc:'Total cloud cover (%)' },
+    { name:'Wind Gusts',         desc:'Wind gusts at 10m (km/h)' },
+    { name:'Solar Radiation',    desc:'Shortwave solar radiation (W/m²)' },
+    { name:'Aerosol Optical Depth', desc:'Aerosol optical depth (dimensionless)' },
+    { name:'Dust',               desc:'Dust concentration (µg/m³)' },
+    { name:'UV Index',           desc:'UV index (0–11+)' },
+    { name:'CO₂',                desc:'Carbon dioxide concentration (ppm)' },
+    { name:'Hour of Day',        desc:'Hour (0–23), cyclically encoded as sin/cos' },
+    { name:'Day of Week',        desc:'Day (0=Mon–6=Sun), cyclically encoded' },
+    { name:'Month',              desc:'Month (1–12), cyclically encoded' },
+    { name:'Is Weekend',         desc:'Binary weekend flag' },
+  ];
 
-  // Architecture
-  const arch = d.architecture;
-  document.getElementById('arch-table').querySelector('tbody').innerHTML = Object.entries(arch).map(([k,v])=>`
-    <tr>
-      <td>${k.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</td>
-      <td style="color:var(--text)">${v}</td>
-    </tr>`).join('');
+  const allFeats = d.features || [];
+  document.getElementById('feat-count').textContent =
+    `(${allFeats.length || DISPLAY_FEATURES.length} engineered from ${DISPLAY_FEATURES.length} base inputs)`;
 
-  // Feature tags
-  document.getElementById('feat-count').textContent = `(${d.feature_count} features)`;
-  document.getElementById('feat-tags').innerHTML = d.features.map(f=>`<span class="feature-tag">${f}</span>`).join('');
+  document.getElementById('feat-tags').innerHTML =
+    DISPLAY_FEATURES.map(f =>
+      `<span class="feature-tag" title="${f.desc}"
+        style="cursor:default;">${f.name}</span>`
+    ).join('');
 }
 
 // ── REFRESH ──────────────────────────────────────────────────────────────────
