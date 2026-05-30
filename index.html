@@ -132,6 +132,21 @@ body::before {
 .refresh-btn:hover { background:rgba(59,130,246,.2); }
 .refresh-btn.spinning .spin-icon { animation:spin .8s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
+@keyframes pulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+.live-pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  background-color: var(--success);
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+  animation: pulse 2s infinite;
+}
 
 /* ── MAIN CONTENT ── */
 .main {
@@ -740,7 +755,7 @@ select.styled {
       Karachi, Pakistan<br>
       <strong>🌐 Coordinates</strong><br>
       24.8607°N, 67.0011°E<br>
-      <strong>🕐 Last Refresh</strong><br>
+      <strong>🕐 Last Refresh</strong> <span class="live-pulse" title="Auto-refresh active"></span><br>
       <span id="last-refresh-time">—</span>
     </div>
     <button class="refresh-btn" id="refresh-btn">
@@ -1452,7 +1467,9 @@ function toast(msg,ok=true){
 
 // ── FETCH HELPERS ────────────────────────────────────────────────────────────
 async function api(path){
-  const r = await fetch(new URL(path.replace(/^\//, ''), API + '/'));
+  const url = new URL(path.replace(/^\//, ''), API + '/');
+  url.searchParams.append('t', Date.now()); // cache buster
+  const r = await fetch(url, { cache: 'no-store' });
   if(!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -1491,8 +1508,19 @@ function updateGauge(aqi, cat, color, dt){
   document.getElementById('gauge-needle-group').setAttribute('transform', `rotate(${angle} 120 108)`);
 }
 
+// ── REFRESH ACTIVE PAGE HELPER ───────────────────────────────────────────────
+function refreshActivePage(){
+  const activeItem = document.querySelector('.nav-item.active');
+  if(!activeItem) return;
+  const pg = activeItem.dataset.page;
+  if(pg==='forecast' && forecastData) renderForecastPage();
+  if(pg==='historical' && historicalData) renderHistoricalPage(historicalData.rows);
+  if(pg==='eda' && edaData) renderEDA(edaData);
+  if(pg==='model' && modelData) renderModel(modelData);
+}
+
 // ── DASHBOARD ────────────────────────────────────────────────────────────────
-async function loadDashboard(){
+async function loadDashboard(isAuto = false){
   // Load current AQI and forecast in parallel — don't let one block the other
   const [currentResult, forecastResult] = await Promise.allSettled([
     api('/api/current'),
@@ -1508,12 +1536,14 @@ async function loadDashboard(){
     updateGauge(aqi, category, color, datetime);
     renderWeather(weather || {});
     renderPollBars(sub_aqi || {});
-    if(currentData.stale){
+    if(currentData.stale && !isAuto){
       const staleTime = new Date(datetime).toLocaleString('en-PK',{timeZone:'Asia/Karachi'});
       toast('Data is stale (last update: '+staleTime+' PKT)', false);
     }
   } else {
-    toast('Current AQI unavailable: '+currentResult.reason.message, false);
+    if(!isAuto){
+      toast('Current AQI unavailable: '+currentResult.reason.message, false);
+    }
     console.error('current failed:', currentResult.reason);
     // Show placeholder gauge
     updateGauge(0, 'No Data', '#5a7093', null);
@@ -1529,16 +1559,23 @@ async function loadDashboard(){
     renderMilestones(fc, currentAqi);
     renderMiniChart(fc);
     const stale = (currentData && currentData.stale) || forecastData.stale;
-    toast(fc.length
-      ? (stale ? 'Dashboard updated (some data may be stale)' : 'Dashboard updated')
-      : 'Dashboard updated — forecast unavailable');
+    if(!isAuto){
+      toast(fc.length
+        ? (stale ? 'Dashboard updated (some data may be stale)' : 'Dashboard updated')
+        : 'Dashboard updated — forecast unavailable');
+    }
   } else {
-    toast('Forecast failed: '+forecastResult.reason.message, false);
+    if(!isAuto){
+      toast('Forecast failed: '+forecastResult.reason.message, false);
+    }
     console.error('forecast failed:', forecastResult.reason);
     // Clear milestone skeletons
     document.getElementById('milestones').innerHTML =
       '<div style="color:var(--muted);padding:20px;grid-column:1/-1;text-align:center">Forecast unavailable</div>';
   }
+
+  // Update whichever active page the user is currently looking at
+  refreshActivePage();
 }
 
 function renderMilestones(fc, currentAqi){
@@ -2073,6 +2110,17 @@ window.addEventListener('resize', ()=>{
 
 // ── BOOT ─────────────────────────────────────────────────────────────────────
 loadDashboard();
+
+// ── AUTO-REFRESH TIMER ───────────────────────────────────────────────────────
+// Periodically polls current AQI & forecast in the background every 5 minutes (300k ms)
+const AUTO_REFRESH_INTERVAL = 300000;
+setInterval(async () => {
+  try {
+    await loadDashboard(true);
+  } catch (err) {
+    console.error("Auto-refresh failed:", err);
+  }
+}, AUTO_REFRESH_INTERVAL);
 </script>
 </body>
 </html>
