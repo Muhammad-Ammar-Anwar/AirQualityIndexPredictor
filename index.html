@@ -756,7 +756,8 @@ select.styled {
       <strong>🌐 Coordinates</strong><br>
       24.8607°N, 67.0011°E<br>
       <strong>🕐 Last Refresh</strong> <span class="live-pulse" title="Auto-refresh active"></span><br>
-      <span id="last-refresh-time">—</span>
+      <span id="last-refresh-time">—</span><br>
+      <span id="next-refresh-countdown" style="font-size:0.68rem;color:var(--muted)">Next refresh in 60s</span>
     </div>
     <button class="refresh-btn" id="refresh-btn">
       <span class="spin-icon">↻</span> Refresh Data
@@ -1475,7 +1476,7 @@ async function api(path){
 }
 
 // ── GAUGE ────────────────────────────────────────────────────────────────────
-function updateGauge(aqi, cat, color, dt){
+function updateGauge(aqi, cat, color, dt, dataAgeHours){
   document.getElementById('gauge-val').textContent = Math.round(aqi);
   document.getElementById('gauge-val').style.color = color;
   document.getElementById('gauge-cat').textContent = '';   // hidden — badge shows category
@@ -1483,15 +1484,17 @@ function updateGauge(aqi, cat, color, dt){
   document.getElementById('gauge-badge').style.background = color+'22';
   document.getElementById('gauge-badge').style.color = color;
 
-  // Staleness check — warn if data is more than 2 hours old
+  // Use server-provided age if available, otherwise compute from datetime
   if(dt){
-    const dataAge = (Date.now() - new Date(dt).getTime()) / 36e5; // hours
+    const ageH = dataAgeHours != null ? dataAgeHours : (Date.now() - new Date(dt).getTime()) / 36e5;
     const timeStr = new Date(dt).toLocaleString('en-PK', {timeZone:'Asia/Karachi'});
-    if(dataAge > 2){
+    if(ageH > 2){
+      const ageLabel = ageH >= 1 ? `${Math.round(ageH)}h ago` : `${Math.round(ageH * 60)}m ago`;
       document.getElementById('gauge-time').innerHTML =
-        `<span style="color:var(--warning)">⚠ Last update: ${timeStr} PKT (${Math.round(dataAge)}h ago)</span>`;
+        `<span style="color:var(--warning)">⚠ Data from: ${timeStr} PKT (${ageLabel} — pipeline may be delayed)</span>`;
     } else {
-      document.getElementById('gauge-time').textContent = `Updated: ${timeStr} PKT`;
+      const ageLabel = ageH < 0.017 ? 'just now' : ageH < 1 ? `${Math.round(ageH * 60)}m ago` : `${Math.round(ageH)}h ago`;
+      document.getElementById('gauge-time').textContent = `Updated: ${timeStr} PKT · ${ageLabel}`;
     }
   } else {
     document.getElementById('gauge-time').textContent = '';
@@ -1530,15 +1533,16 @@ async function loadDashboard(isAuto = false){
   // Handle current AQI
   if(currentResult.status === 'fulfilled'){
     currentData = currentResult.value;
-    const { aqi, category, color, datetime, weather, sub_aqi } = currentData;
+    const { aqi, category, color, datetime, weather, sub_aqi, data_age_hours } = currentData;
     const pkt = new Date().toLocaleString('en-PK',{timeZone:'Asia/Karachi'});
     document.getElementById('last-refresh-time').textContent = pkt;
-    updateGauge(aqi, category, color, datetime);
+    updateGauge(aqi, category, color, datetime, data_age_hours);
     renderWeather(weather || {});
     renderPollBars(sub_aqi || {});
     if(currentData.stale && !isAuto){
+      const ageH = data_age_hours != null ? data_age_hours : ((Date.now() - new Date(datetime).getTime()) / 36e5);
       const staleTime = new Date(datetime).toLocaleString('en-PK',{timeZone:'Asia/Karachi'});
-      toast('Data is stale (last update: '+staleTime+' PKT)', false);
+      toast(`⚠ Data is ${Math.round(ageH)}h old (last: ${staleTime} PKT) — pipeline may be delayed`, false);
     }
   } else {
     if(!isAuto){
@@ -2112,9 +2116,21 @@ window.addEventListener('resize', ()=>{
 loadDashboard();
 
 // ── AUTO-REFRESH TIMER ───────────────────────────────────────────────────────
-// Periodically polls current AQI & forecast in the background every 5 minutes (300k ms)
-const AUTO_REFRESH_INTERVAL = 300000;
+// Polls current AQI & forecast every 60 seconds so the UI stays in sync
+// with the hourly GitHub Actions pipeline that writes to MongoDB.
+const AUTO_REFRESH_INTERVAL = 60000; // 60 seconds
+let nextRefreshIn = AUTO_REFRESH_INTERVAL / 1000;
+
+// Countdown ticker — updates the sidebar "Last Refresh" area every second
+setInterval(() => {
+  nextRefreshIn -= 1;
+  if (nextRefreshIn < 0) nextRefreshIn = AUTO_REFRESH_INTERVAL / 1000;
+  const el = document.getElementById('next-refresh-countdown');
+  if (el) el.textContent = `Next refresh in ${nextRefreshIn}s`;
+}, 1000);
+
 setInterval(async () => {
+  nextRefreshIn = AUTO_REFRESH_INTERVAL / 1000;
   try {
     await loadDashboard(true);
   } catch (err) {

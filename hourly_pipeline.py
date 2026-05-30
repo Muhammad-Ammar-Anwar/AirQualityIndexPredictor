@@ -197,13 +197,21 @@ def _api_get(url: str, params: dict, max_retries: int = 5, fallback_url: str = N
 
 
 def fetch_recent_hours():
-    """Fetch today's forecast data and extract the last LOOKBACK_HOURS rows."""
+    """Fetch recent weather + air quality data for the last LOOKBACK_HOURS.
+
+    Uses past_days=1 on both APIs to get confirmed historical data rather
+    than relying solely on forecast data which can lag 1-6h behind real time.
+    """
     print(f"[FETCH] Fetching last {LOOKBACK_HOURS}h weather + air quality ...")
 
+    # Use past_days=1 + forecast_days=1 to ensure current and recent hours
+    # are always available regardless of forecast model update lag
     w_params = {
         "latitude": LATITUDE, "longitude": LONGITUDE,
         "hourly": ",".join(WEATHER_VARS),
-        "timezone": "UTC", "forecast_days": 2,
+        "timezone": "UTC",
+        "past_days": 1,
+        "forecast_days": 1,
     }
     print(f"[FETCH] Weather URL: {WEATHER_FORECAST_URL}")
     w_data = _api_get(WEATHER_FORECAST_URL, w_params, fallback_url=WEATHER_FORECAST_URL_FALLBACK)
@@ -216,7 +224,9 @@ def fetch_recent_hours():
     aq_params = {
         "latitude": LATITUDE, "longitude": LONGITUDE,
         "hourly": ",".join(AQ_VARS),
-        "timezone": "UTC", "forecast_days": 2,
+        "timezone": "UTC",
+        "past_days": 1,
+        "forecast_days": 1,
     }
     print(f"[FETCH] AQ URL: {AIR_QUALITY_URL}")
     aq_data = _api_get(AIR_QUALITY_URL, aq_params)
@@ -240,16 +250,18 @@ def fetch_recent_hours():
         print("[FETCH] WARNING: merged DataFrame is empty (weather/AQ merge produced 0 rows)")
         return pd.DataFrame()
 
+    # Primary filter: last LOOKBACK_HOURS up to now
     recent = merged[(merged["datetime"] >= cutoff) & (merged["datetime"] <= now)]
     recent = recent.sort_values("datetime").reset_index(drop=True)
 
     if recent.empty:
+        # Fallback: widen to 12h in case of API lag
         print(f"[FETCH] Strict filter ({cutoff} to {now}) found 0 rows — trying wider 12h window ...")
         wider_cutoff = now - timedelta(hours=12)
         recent = merged[(merged["datetime"] >= wider_cutoff) & (merged["datetime"] <= now)]
         recent = recent.sort_values("datetime").reset_index(drop=True)
         if recent.empty:
-            print(f"[FETCH] Wide filter also empty. Trying nearest past hours from API data ...")
+            print(f"[FETCH] Wide filter also empty. Using nearest past hours from API data ...")
             past = merged[merged["datetime"] <= now].sort_values("datetime", ascending=False)
             if not past.empty:
                 recent = past.head(LOOKBACK_HOURS).sort_values("datetime").reset_index(drop=True)

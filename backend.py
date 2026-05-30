@@ -113,6 +113,12 @@ def get_mongo_client() -> MongoClient:
 # ── model cache (loaded once at startup) ─────────────────────────────────────
 _model_cache: dict = {}
 
+# ── snapshot cache — rebuilt on every ingest trigger ─────────────────────────
+# Holds the fully-computed current + forecast payload so /api/current and
+# /api/forecast serve from memory instead of hitting MongoDB per request.
+_snapshot: dict = {}          # keys: "current", "forecast", "updated_at"
+_snapshot_lock = asyncio.Lock()
+
 def load_models() -> dict:
     """
     Load models from MongoDB. Handles all pipeline versions (v5, v6, v7).
@@ -342,15 +348,50 @@ async def generate_forecast(cache: dict, df: pd.DataFrame) -> list:
 # ── FastAPI app ───────────────────────────────────────────────────────────────
 from contextlib import asynccontextmanager
 
+# ── snapshot builder ──────────────────────────────────────────────────────────
+
+async def _build_snapshot() -> dict:
+    """
+    Pull the latest feature data from MongoDB and run the 72h forecast.
+    The result is cached in _snapshot so /api/forecast is served instantly.
+    /api/current is NOT cached here — it always queries MongoDB live.
+    Called at startup and by /api/ingest-trigger.
+    """
+    def _load_data():
+        cache        = load_models()
+        row, stale   = _fetch_latest_row()
+        df, df_stale = _fetch_feature_df()
+        return cache, row, stale, df, df_stale
+
+    cache, row, stale, df, df_stale = await run_in_threadpool(_load_data)
+
+    # ── forecast payload (the expensive ML part worth caching) ────────────
+    forecast_payload: list = []
+    if not df.empty:
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        if df["datetime"].dt.tz is not None:
+            df["datetime"] = df["datetime"].dt.tz_localize(None)
+        forecast_payload = await generate_forecast(cache, df)
+
+    return {
+        "forecast":   forecast_payload,
+        "stale":      stale or df_stale,
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Preload models and warm up MongoDB connection at startup."""
+    """Preload models, warm up MongoDB, and build the initial snapshot at startup."""
+    global _snapshot
     loop = asyncio.get_event_loop()
     try:
         print("Preloading MongoDB connection and ML models...")
         await loop.run_in_executor(None, get_mongo_client)
         await loop.run_in_executor(None, load_models)
-        print("Models and DB ready.")
+        print("Building initial forecast snapshot...")
+        _snapshot = await _build_snapshot()
+        print(f"Snapshot ready — forecast pts: {len(_snapshot.get('forecast', []))}")
     except Exception as e:
         print(f"Startup preload failed (will retry on first request): {e}")
     yield
@@ -368,22 +409,30 @@ app.add_middleware(
 # ── routes ────────────────────────────────────────────────────────────────────
 
 def _fetch_latest_row(max_age_hours: Optional[int] = 48) -> tuple[Optional[dict], bool]:
-    """Return (row, stale). Falls back to the newest row if nothing within max_age_hours."""
+    """Return (row, stale).
+    stale=True if the newest record is older than 2 hours (pipeline should run hourly).
+    Falls back to the absolute newest row if nothing within max_age_hours.
+    """
     client = get_mongo_client()
     col = client[FEATURE_DB][FEATURE_COL]
-    if max_age_hours is not None:
-        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
-        docs = list(
-            col.find({"datetime": {"$gte": cutoff}}, {"_id": 0})
-            .sort("datetime", -1)
-            .limit(1)
-        )
-        if docs:
-            return docs[0], False
+
+    # Always grab the single newest document regardless of age
     docs = list(col.find({}, {"_id": 0}).sort("datetime", -1).limit(1))
     if not docs:
         return None, False
-    return docs[0], max_age_hours is not None
+
+    row = docs[0]
+    # Compute actual age and mark stale if older than 2 hours
+    try:
+        dt = pd.Timestamp(row["datetime"])
+        if dt.tzinfo is not None:
+            dt = dt.tz_convert("UTC").tz_localize(None)
+        age_hours = (datetime.utcnow() - dt.to_pydatetime()).total_seconds() / 3600
+        stale = age_hours > 2.0
+    except Exception:
+        stale = False
+
+    return row, stale
 
 
 def _fetch_feature_df(recent_days: int = 5, fallback_hours: int = 72) -> tuple[pd.DataFrame, bool]:
@@ -424,6 +473,28 @@ async def health():
     return {"status": "ok", "time_pkt": get_pkt_now().isoformat()}
 
 
+@app.post("/api/ingest-trigger")
+async def ingest_trigger():
+    """
+    Called by GitHub Actions at the end of the hourly pipeline.
+    Fetches the latest data from MongoDB, runs the forecast, and stores
+    the result in the in-memory snapshot so all subsequent frontend
+    requests are served instantly from cache.
+    """
+    global _snapshot
+    async with _snapshot_lock:
+        try:
+            snap = await _build_snapshot()
+            _snapshot = snap
+            return {
+                "status":       "ok",
+                "updated_at":   snap["updated_at"],
+                "forecast_pts": len(snap["forecast"]),
+            }
+        except Exception as e:
+            raise HTTPException(500, f"Snapshot build failed: {e}")
+
+
 @app.post("/api/reload-models")
 async def reload_models():
     """
@@ -447,7 +518,7 @@ async def reload_models():
 
 @app.get("/api/current")
 async def get_current():
-    """Latest AQI reading + weather snapshot."""
+    """Latest AQI reading + weather — always fetched live from MongoDB."""
     try:
         row, stale = await run_in_threadpool(_fetch_latest_row)
         if row is None:
@@ -459,23 +530,18 @@ async def get_current():
             "cloud_cover", "dew_point_2m", "surface_pressure",
             "shortwave_radiation", "wind_gusts_10m", "precipitation",
         ]
-        weather = {k: row.get(k) for k in weather_keys}
-        sub_aqi = {
-            "pm2_5":           row.get("us_aqi_pm2_5"),
-            "pm10":            row.get("us_aqi_pm10"),
-            "nitrogen_dioxide":row.get("us_aqi_nitrogen_dioxide"),
-            "ozone":           row.get("us_aqi_ozone"),
-            "sulphur_dioxide": row.get("us_aqi_sulphur_dioxide"),
-            "carbon_monoxide": row.get("us_aqi_carbon_monoxide"),
-        }
-        pollutants = {
-            "pm2_5":            row.get("pm2_5"),
-            "pm10":             row.get("pm10"),
-            "ozone":            row.get("ozone"),
-            "nitrogen_dioxide": row.get("nitrogen_dioxide"),
-            "sulphur_dioxide":  row.get("sulphur_dioxide"),
-            "carbon_monoxide":  row.get("carbon_monoxide"),
-        }
+
+        # Compute data age in hours
+        try:
+            dt = pd.Timestamp(row.get("datetime"))
+            if dt.tzinfo is not None:
+                dt = dt.tz_convert("UTC").tz_localize(None)
+            data_age_hours = round(
+                (datetime.utcnow() - dt.to_pydatetime()).total_seconds() / 3600, 1
+            )
+        except Exception:
+            data_age_hours = None
+
         return {
             "aqi":             aqi,
             "category":        aqi_label(aqi),
@@ -483,10 +549,26 @@ async def get_current():
             "datetime":        str(row.get("datetime", "")).replace(" ", "T") + "Z",
             "pkt_now":         get_pkt_now().isoformat(),
             "stale":           stale,
-            "weather":         weather,
-            "sub_aqi":         sub_aqi,
-            "pollutants":      pollutants,
+            "data_age_hours":  data_age_hours,
+            "weather":         {k: row.get(k) for k in weather_keys},
+            "sub_aqi": {
+                "pm2_5":            row.get("us_aqi_pm2_5"),
+                "pm10":             row.get("us_aqi_pm10"),
+                "nitrogen_dioxide": row.get("us_aqi_nitrogen_dioxide"),
+                "ozone":            row.get("us_aqi_ozone"),
+                "sulphur_dioxide":  row.get("us_aqi_sulphur_dioxide"),
+                "carbon_monoxide":  row.get("us_aqi_carbon_monoxide"),
+            },
+            "pollutants": {
+                "pm2_5":            row.get("pm2_5"),
+                "pm10":             row.get("pm10"),
+                "ozone":            row.get("ozone"),
+                "nitrogen_dioxide": row.get("nitrogen_dioxide"),
+                "sulphur_dioxide":  row.get("sulphur_dioxide"),
+                "carbon_monoxide":  row.get("carbon_monoxide"),
+            },
             "dominant_pollutant": row.get("dominant_pollutant"),
+            "snapshot_at":     _snapshot.get("updated_at"),  # when forecast cache was last built
         }
     except HTTPException:
         raise
@@ -535,7 +617,16 @@ async def get_historical(days: int = Query(5, ge=1, le=30)):
 
 @app.get("/api/forecast")
 async def get_forecast():
-    """72-hour AQI forecast from loaded ML models."""
+    """72-hour AQI forecast. Served from in-memory cache."""
+    # Serve from snapshot if available
+    if _snapshot.get("forecast") is not None:
+        return {
+            "forecasts":   _snapshot["forecast"],
+            "stale":       _snapshot.get("stale", False),
+            "snapshot_at": _snapshot.get("updated_at"),
+        }
+
+    # Fallback: compute live (e.g. first request before any trigger)
     try:
         def _load():
             cache = load_models()

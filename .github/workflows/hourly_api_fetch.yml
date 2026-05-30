@@ -40,3 +40,16 @@ jobs:
 
       - name: Run hourly pipeline
         run: python hourly_pipeline.py
+
+      - name: Trigger backend snapshot refresh
+        # 1. Wake the Hugging Face Space (free tier sleeps after inactivity).
+        # 2. Call /api/ingest-trigger — backend fetches the new MongoDB data,
+        #    runs the forecast, and caches everything in memory so the frontend
+        #    gets instant responses on the next poll.
+        run: |
+          BACKEND="https://ammaranwar-aqi-backend.hf.space"
+          echo "Waking up backend..."
+          curl -sf --retry 5 --retry-delay 10 --retry-connrefused "$BACKEND/health" || true
+          echo "Triggering snapshot rebuild..."
+          RESPONSE=$(curl -sf -X POST "$BACKEND/api/ingest-trigger" || echo '{"status":"failed"}')
+          echo "Backend response: $RESPONSE"
