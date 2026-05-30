@@ -283,12 +283,26 @@ def get_existing_datetimes(datetimes):
     client = get_mongo_client()
     collection = client[DB_NAME][COLLECTION_NAME]
 
-    dt_list = [pd.Timestamp(dt).to_pydatetime() for dt in datetimes]
+    # Normalise to naive UTC before querying — MongoDB may store with or without tz
+    def _to_naive(dt):
+        ts = pd.Timestamp(dt)
+        if ts.tzinfo is not None:
+            ts = ts.tz_convert("UTC").tz_localize(None)
+        return ts.to_pydatetime()
+
+    dt_list = [_to_naive(dt) for dt in datetimes]
+
+    # Query both naive and UTC-aware variants to be safe
     cursor = collection.find(
         {"datetime": {"$in": dt_list}},
         {"datetime": 1, "_id": 0}
     )
-    existing = {pd.Timestamp(doc["datetime"]) for doc in cursor}
+    existing = set()
+    for doc in cursor:
+        ts = pd.Timestamp(doc["datetime"])
+        if ts.tzinfo is not None:
+            ts = ts.tz_convert("UTC").tz_localize(None)
+        existing.add(ts)
     client.close()
     return existing
 
@@ -338,7 +352,7 @@ def upload_single_record(record_dict):
 
 
 def prepare_record(row_dict):
-    """Convert to MongoDB-safe types."""
+    """Convert to MongoDB-safe types. Datetimes stored as naive UTC."""
     clean = {}
     for k, v in row_dict.items():
         if isinstance(v, (np.integer,)):
@@ -348,7 +362,17 @@ def prepare_record(row_dict):
         elif isinstance(v, np.bool_):
             clean[k] = bool(v)
         elif isinstance(v, pd.Timestamp):
-            clean[k] = v.to_pydatetime()
+            # Always store as naive UTC — strip tz if present
+            ts = v
+            if ts.tzinfo is not None:
+                ts = ts.tz_convert("UTC").tz_localize(None)
+            clean[k] = ts.to_pydatetime()
+        elif isinstance(v, datetime):
+            # Strip tz from plain datetime too
+            if v.tzinfo is not None:
+                import pytz as _pytz
+                v = v.astimezone(_pytz.utc).replace(tzinfo=None)
+            clean[k] = v
         elif pd.api.types.is_scalar(v) and pd.isna(v):
             clean[k] = None
         else:
