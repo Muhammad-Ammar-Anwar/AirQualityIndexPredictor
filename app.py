@@ -661,7 +661,7 @@ def main():
                         background: linear-gradient(135deg, #3b82f6, #8b5cf6);
                         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
                         font-family: Inter, sans-serif;'>
-                AQI SeekAI
+                AQI Prediction
             </div>
             <div style='font-size:0.8rem; color:#94a3b8; margin-top:2px;
                         font-family:Inter,sans-serif;'>
