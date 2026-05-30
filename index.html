@@ -711,6 +711,136 @@ select.styled {
   .arch-table tr { display:block; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.04); }
   .arch-table td { display:block; border:none; padding:2px 14px; }
 }
+
+/* ── MANUAL PREDICT — CALENDAR ── */
+.cal-nav-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  width: 28px; height: 28px;
+  font-size: 1.1rem; line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .2s;
+}
+.cal-nav-btn:hover { background: rgba(59,130,246,.15); border-color: rgba(59,130,246,.3); color: var(--primary); }
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.cal-header-row {
+  margin-bottom: 4px;
+}
+.cal-header-row span {
+  text-align: center;
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 3px 0;
+}
+.cal-day {
+  height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: default;
+  transition: all .15s;
+  border: 1px solid transparent;
+  user-select: none;
+}
+.cal-day.empty { background: transparent; }
+.cal-day.disabled {
+  color: rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.02);
+}
+.cal-day.available {
+  color: var(--text);
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.1);
+  cursor: pointer;
+}
+.cal-day.available:hover {
+  background: rgba(59,130,246,.18);
+  border-color: rgba(59,130,246,.35);
+  color: #93c5fd;
+  transform: scale(1.08);
+}
+.cal-day.today {
+  border-color: rgba(59,130,246,.4);
+  color: #93c5fd;
+}
+.cal-day.selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 0 0 2px rgba(59,130,246,.25);
+}
+.cal-day.selected:hover { transform: scale(1.08); }
+
+/* ── MANUAL PREDICT — BUTTON ── */
+.manual-predict-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 22px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  border: none;
+  color: #fff;
+  font-family: var(--font);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .2s;
+  box-shadow: 0 4px 14px rgba(59,130,246,.3);
+}
+.manual-predict-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(59,130,246,.4); }
+.manual-predict-btn:active { transform: translateY(0); }
+.manual-predict-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+/* ── MANUAL PREDICT — HOURLY CHIPS ── */
+.manual-hour-chip {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 8px;
+  text-align: center;
+  transition: all .2s;
+}
+.manual-hour-chip:hover { border-color: rgba(99,179,237,.2); transform: translateY(-2px); }
+.manual-hour-chip .chip-time {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.manual-hour-chip .chip-horizon {
+  font-size: 0.62rem;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.manual-hour-chip .chip-aqi {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.manual-hour-chip .chip-cat {
+  font-size: 0.62rem;
+  margin-top: 3px;
+  font-weight: 500;
+}
+
+@media(max-width:768px){
+  .manual-hour-chip .chip-aqi { font-size: 1rem; }
+}
 </style>
 </head>
 <body>
@@ -738,6 +868,9 @@ select.styled {
     <div class="nav-item" data-page="forecast">
       <span class="nav-icon">📈</span> 72h Forecast
     </div>
+    <div class="nav-item" data-page="manual">
+      <span class="nav-icon">🗓️</span> Manual Predict
+    </div>
     <div class="nav-item" data-page="historical">
       <span class="nav-icon">📊</span> Historical Data
     </div>
@@ -756,8 +889,7 @@ select.styled {
       <strong>🌐 Coordinates</strong><br>
       24.8607°N, 67.0011°E<br>
       <strong>🕐 Last Refresh</strong> <span class="live-pulse" title="Auto-refresh active"></span><br>
-      <span id="last-refresh-time">—</span><br>
-      <span id="next-refresh-countdown" style="font-size:0.68rem;color:var(--muted)">Next refresh in 60s</span>
+      <span id="last-refresh-time">—</span>
     </div>
     <button class="refresh-btn" id="refresh-btn">
       <span class="spin-icon">↻</span> Refresh Data
@@ -1335,6 +1467,120 @@ select.styled {
 
   </div>
 
+  <!-- MANUAL PREDICT PAGE -->
+  <div class="page" id="page-manual">
+    <div class="page-header">
+      <h1>Manual Prediction</h1>
+      <p>Select a date to get hourly AQI predictions (00:00 → 23:00 PKT) for the full day</p>
+    </div>
+
+    <div style="display:flex;gap:24px;align-items:start;flex-wrap:wrap;">
+
+      <!-- Calendar Card -->
+      <div class="card" style="width:320px;flex-shrink:0;">
+        <div class="card-title">📅 Select a Date</div>
+        <div id="manual-cal-wrap">
+          <!-- Month nav -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <button id="cal-prev" class="cal-nav-btn" aria-label="Previous month">&#8249;</button>
+            <span id="cal-month-label" style="font-size:0.88rem;font-weight:600;color:var(--text)"></span>
+            <button id="cal-next" class="cal-nav-btn" aria-label="Next month">&#8250;</button>
+          </div>
+          <!-- Day-of-week headers -->
+          <div class="cal-grid cal-header-row">
+            <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+          </div>
+          <!-- Day cells injected by JS -->
+          <div class="cal-grid" id="cal-days"></div>
+          <!-- Legend -->
+          <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;">
+            <span style="display:flex;align-items:center;gap:5px;font-size:0.7rem;color:var(--muted)">
+              <span style="width:10px;height:10px;border-radius:3px;background:var(--primary);display:inline-block"></span> Selected
+            </span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:0.7rem;color:var(--muted)">
+              <span style="width:10px;height:10px;border-radius:3px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);display:inline-block"></span> Available (today + next 2 days)
+            </span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:0.7rem;color:var(--muted)">
+              <span style="width:10px;height:10px;border-radius:3px;background:rgba(255,255,255,0.02);display:inline-block"></span> Unavailable
+            </span>
+          </div>
+        </div>
+
+        <!-- Selected date info + predict button -->
+        <div id="manual-selected-info" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+              <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:4px;">Selected Date</div>
+              <div id="manual-date-display" style="font-size:1.1rem;font-weight:600;color:var(--text)"></div>
+            </div>
+            <button id="manual-predict-btn" class="manual-predict-btn">
+              <span id="manual-predict-spinner" style="display:none">⏳</span>
+              <span id="manual-predict-label">Run Prediction</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Results summary card -->
+      <div class="card" id="manual-summary-card" style="display:none;flex:1;min-width:260px;">
+        <div class="card-title">📊 Day Summary</div>
+        <div id="manual-summary-stats" class="grid-2" style="gap:12px;margin-bottom:16px;"></div>
+        <div class="chart-wrap" style="height:220px;">
+          <canvas id="chart-manual-preview"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hourly results -->
+    <div id="manual-results-wrap" style="margin-top:24px;display:none;">
+      <div class="section-title">🕐 Hourly Predictions — 00:00 → 23:00</div>
+
+      <!-- Full day chart -->
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-title">📈 Full Day AQI Forecast</div>
+        <div class="chart-wrap" style="height:300px;">
+          <canvas id="chart-manual-full"></canvas>
+        </div>
+      </div>
+
+      <!-- Hourly chips grid -->
+      <div id="manual-hourly-chips" style="
+        display:grid;
+        grid-template-columns:repeat(auto-fill,minmax(110px,1fr));
+        gap:10px;
+        margin-bottom:20px;
+      "></div>
+
+      <!-- Detailed table -->
+      <div class="card">
+        <div class="card-title">📋 Detailed Hourly Table</div>
+        <div style="overflow-x:auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Horizon</th>
+                <th>Time (PKT)</th>
+                <th>Predicted AQI</th>
+                <th>Category</th>
+                <th>Health Advice</th>
+              </tr>
+            </thead>
+            <tbody id="manual-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty state -->
+    <div id="manual-empty-state" style="
+      text-align:center;padding:60px 20px;color:var(--muted);
+    ">
+      <div style="font-size:3rem;margin-bottom:16px;">🗓️</div>
+      <div style="font-size:1rem;font-weight:500;color:var(--text);margin-bottom:8px;">Pick a date to get started</div>
+      <div style="font-size:0.85rem;">Only today and the next 3 days are available for prediction</div>
+    </div>
+  </div>
+
 </main>
 
 <!-- TOAST -->
@@ -1416,6 +1662,7 @@ const PAGE_TITLES = {
   historical: 'Historical',
   eda: 'Analytics',
   model: 'Model Info',
+  manual: 'Manual Predict',
 };
 
 function setSidebarOpen(open){
@@ -1448,6 +1695,7 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(pg==='historical') loadHistorical(false);
     if(pg==='eda') loadEDA();
     if(pg==='model'     && !modelData)    loadModel();
+    if(pg==='manual') initManualPredict();
   });
 });
 
@@ -2094,6 +2342,275 @@ function renderModel(d){
     ).join('');
 }
 
+// ── MANUAL PREDICT ───────────────────────────────────────────────────────────
+let manualSelectedDate = null;   // 'YYYY-MM-DD'
+let manualCalYear  = null;
+let manualCalMonth = null;       // 0-indexed
+let manualInited   = false;
+
+function initManualPredict() {
+  if (manualInited) { renderCalendar(); return; }
+  manualInited = true;
+
+  const now = new Date();
+  manualCalYear  = now.getFullYear();
+  manualCalMonth = now.getMonth();
+
+  document.getElementById('cal-prev').addEventListener('click', () => {
+    // Only allow navigating to months that contain selectable days
+    const firstAllowed = new Date();
+    firstAllowed.setHours(0,0,0,0);
+    const prevMonth = new Date(manualCalYear, manualCalMonth - 1, 1);
+    const lastDayPrev = new Date(manualCalYear, manualCalMonth, 0);
+    if (lastDayPrev >= firstAllowed) {
+      manualCalMonth--;
+      if (manualCalMonth < 0) { manualCalMonth = 11; manualCalYear--; }
+      renderCalendar();
+    }
+  });
+
+  document.getElementById('cal-next').addEventListener('click', () => {
+    // Only allow navigating to months that contain selectable days
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + 2);
+    const nextMonthFirst = new Date(manualCalYear, manualCalMonth + 1, 1);
+    if (nextMonthFirst <= maxDate) {
+      manualCalMonth++;
+      if (manualCalMonth > 11) { manualCalMonth = 0; manualCalYear++; }
+      renderCalendar();
+    }
+  });
+
+  document.getElementById('manual-predict-btn').addEventListener('click', runManualPredict);
+
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const MONTHS = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+  document.getElementById('cal-month-label').textContent =
+    `${MONTHS[manualCalMonth]} ${manualCalYear}`;
+
+  // Allowed range: today (PKT) and next 2 days
+  const todayLocal = new Date();
+  todayLocal.setHours(0,0,0,0);
+  const maxDate = new Date(todayLocal);
+  maxDate.setDate(maxDate.getDate() + 2);
+
+  // First day of month and total days
+  const firstDay = new Date(manualCalYear, manualCalMonth, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(manualCalYear, manualCalMonth + 1, 0).getDate();
+
+  let html = '';
+  // Leading empty cells
+  for (let i = 0; i < firstDay; i++) {
+    html += `<div class="cal-day empty"></div>`;
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const thisDate = new Date(manualCalYear, manualCalMonth, d);
+    const dateStr  = `${manualCalYear}-${String(manualCalMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday    = thisDate.getTime() === todayLocal.getTime();
+    const isSelected = dateStr === manualSelectedDate;
+    const isAvail    = thisDate >= todayLocal && thisDate <= maxDate;
+
+    let cls = 'cal-day';
+    if (!isAvail)    cls += ' disabled';
+    else             cls += ' available';
+    if (isToday)     cls += ' today';
+    if (isSelected)  cls += ' selected';
+
+    const clickAttr = isAvail
+      ? `onclick="selectManualDate('${dateStr}')"`
+      : '';
+
+    html += `<div class="${cls}" ${clickAttr} title="${dateStr}">${d}</div>`;
+  }
+
+  document.getElementById('cal-days').innerHTML = html;
+}
+
+function selectManualDate(dateStr) {
+  manualSelectedDate = dateStr;
+  renderCalendar();
+
+  // Show selected info panel
+  const info = document.getElementById('manual-selected-info');
+  info.style.display = 'block';
+
+  // Format display date nicely
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m-1, d);
+  const opts = { weekday:'long', year:'numeric', month:'long', day:'numeric' };
+  document.getElementById('manual-date-display').textContent =
+    dt.toLocaleDateString('en-US', opts);
+
+  // Hide previous results
+  document.getElementById('manual-results-wrap').style.display = 'none';
+  document.getElementById('manual-summary-card').style.display = 'none';
+  document.getElementById('manual-empty-state').style.display = 'none';
+}
+
+async function runManualPredict() {
+  if (!manualSelectedDate) return;
+
+  const btn     = document.getElementById('manual-predict-btn');
+  const spinner = document.getElementById('manual-predict-spinner');
+  const label   = document.getElementById('manual-predict-label');
+
+  btn.disabled    = true;
+  spinner.style.display = 'inline';
+  label.textContent     = 'Predicting…';
+
+  try {
+    const data = await api(`/api/manual-predict?date=${manualSelectedDate}`);
+    renderManualResults(data);
+  } catch(e) {
+    toast('Prediction failed: ' + e.message, false);
+  } finally {
+    btn.disabled          = false;
+    spinner.style.display = 'none';
+    label.textContent     = 'Run Prediction';
+  }
+}
+
+function renderManualResults(data) {
+  const preds   = data.predictions || [];
+  const summary = data.summary     || {};
+
+  if (!preds.length) {
+    toast('No predictions returned', false);
+    return;
+  }
+
+  // ── Summary stats ──────────────────────────────────────────────────────
+  document.getElementById('manual-summary-card').style.display = 'block';
+  document.getElementById('manual-summary-stats').innerHTML = [
+    ['Mean AQI',    summary.mean_aqi],
+    ['Peak AQI',    summary.max_aqi],
+    ['Min AQI',     summary.min_aqi],
+    ['Dominant',    summary.dominant_category],
+  ].map(([lbl, val]) => `
+    <div class="metric-card">
+      <div class="metric-label">${lbl}</div>
+      <div class="metric-value" style="font-size:1.2rem">${val ?? '—'}</div>
+    </div>`).join('');
+
+  // ── Preview chart (summary card) ───────────────────────────────────────
+  destroyChart('manual-preview');
+  const previewCtx = document.getElementById('chart-manual-preview').getContext('2d');
+  charts['manual-preview'] = new Chart(previewCtx, {
+    type: 'line',
+    data: {
+      labels:   preds.map(p => `${String(p.pkt_hour).padStart(2,'0')}:00`),
+      datasets: [{
+        label: 'AQI',
+        data:  preds.map(p => p.predicted_aqi),
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.1)',
+        borderWidth: 2, pointRadius: 3, fill: true, tension: 0.35,
+        pointBackgroundColor: preds.map(p => p.color),
+      }],
+    },
+    options: {
+      ...DARK,
+      plugins: { ...DARK.plugins, legend: { display: false } },
+      scales: {
+        x: { ...DARK.scales.x },
+        y: { ...DARK.scales.y, min: 0 },
+      },
+    },
+  });
+
+  // ── Show results section ───────────────────────────────────────────────
+  document.getElementById('manual-results-wrap').style.display = 'block';
+  document.getElementById('manual-empty-state').style.display  = 'none';
+
+  // ── Full day chart ─────────────────────────────────────────────────────
+  destroyChart('manual-full');
+  const fullCtx = document.getElementById('chart-manual-full').getContext('2d');
+  const bandColors = { short: '#3b82f6', medium: '#f59e0b', long: '#8b5cf6' };
+  const bandDatasets = ['short','medium','long'].map(band => {
+    const bandPreds = preds.filter(p => p.band === band);
+    const allHours  = preds.map(p => p.pkt_hour);
+    return {
+      label: band.charAt(0).toUpperCase() + band.slice(1),
+      data:  allHours.map(h => {
+        const p = preds.find(x => x.pkt_hour === h && x.band === band);
+        return p ? p.predicted_aqi : null;
+      }),
+      borderColor:     bandColors[band],
+      backgroundColor: bandColors[band] + '18',
+      borderWidth: 2.5, pointRadius: 4, fill: false, tension: 0.35,
+      spanGaps: true,
+      pointBackgroundColor: allHours.map(h => {
+        const p = preds.find(x => x.pkt_hour === h && x.band === band);
+        return p ? p.color : 'transparent';
+      }),
+    };
+  });
+
+  charts['manual-full'] = new Chart(fullCtx, {
+    type: 'line',
+    data: {
+      labels:   preds.map(p => `${String(p.pkt_hour).padStart(2,'0')}:00`),
+      datasets: bandDatasets,
+    },
+    options: {
+      ...DARK,
+      scales: {
+        x: { ...DARK.scales.x },
+        y: { ...DARK.scales.y, min: 0 },
+      },
+    },
+  });
+
+  // ── Hourly chips ───────────────────────────────────────────────────────
+  document.getElementById('manual-hourly-chips').innerHTML = preds.map(p => `
+    <div class="manual-hour-chip">
+      <div class="chip-time">${String(p.pkt_hour).padStart(2,'0')}:00</div>
+      <div class="chip-horizon" style="color:${bandColors[p.band] || 'var(--muted)'}">t+${p.horizon_h}h</div>
+      <div class="chip-aqi" style="color:${p.color}">${p.predicted_aqi}</div>
+      <div class="chip-cat" style="color:${p.color}">${p.category}</div>
+    </div>`).join('');
+
+  // ── Detailed table ─────────────────────────────────────────────────────
+  const bandBadgeColors = { short: '#3b82f6', medium: '#f59e0b', long: '#8b5cf6' };
+  const healthAdvice = {
+    'Good':                    'Air quality is satisfactory.',
+    'Moderate':                'Unusually sensitive people should consider limiting outdoor exertion.',
+    'Unhealthy for Sensitive': 'Sensitive groups should reduce prolonged outdoor exertion.',
+    'Unhealthy':               'Everyone should reduce prolonged outdoor exertion.',
+    'Very Unhealthy':          'Everyone should avoid prolonged outdoor exertion.',
+    'Hazardous':               'Everyone should avoid all outdoor exertion.',
+  };
+
+  document.getElementById('manual-tbody').innerHTML = preds.map(p => {
+    const bc = bandBadgeColors[p.band] || '#5a7093';
+    const advice = healthAdvice[p.category] || '—';
+    // Format PKT time nicely
+    const [datePart, timePart] = p.pkt_time.split(' ');
+    const [hh, mm] = timePart.split(':');
+    const h24 = parseInt(hh);
+    const ampm = h24 >= 12 ? 'PM' : 'AM';
+    const h12  = h24 % 12 || 12;
+    const displayTime = `${datePart}, ${h12}:${mm}:00 ${ampm}`;
+
+    return `
+    <tr>
+      <td style="font-weight:600;color:var(--text)">t+${p.horizon_h}h</td>
+      <td style="color:var(--muted)">${displayTime}</td>
+      <td class="td-num" style="color:${p.color};font-weight:700;font-size:1rem">${p.predicted_aqi}</td>
+      <td><span class="badge" style="background:${bc}22;color:${bc};border:1px solid ${bc}44">${p.band}</span></td>
+      <td><span class="badge" style="background:${p.color}22;color:${p.color};border:1px solid ${p.color}44">${p.category}</span></td>
+    </tr>`;
+  }).join('');
+
+  // Scroll to results
+  document.getElementById('manual-results-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 // ── REFRESH ──────────────────────────────────────────────────────────────────
 document.getElementById('refresh-btn').addEventListener('click',async()=>{
   const btn = document.getElementById('refresh-btn');
@@ -2119,18 +2636,8 @@ loadDashboard();
 // Polls current AQI & forecast every 60 seconds so the UI stays in sync
 // with the hourly GitHub Actions pipeline that writes to MongoDB.
 const AUTO_REFRESH_INTERVAL = 60000; // 60 seconds
-let nextRefreshIn = AUTO_REFRESH_INTERVAL / 1000;
-
-// Countdown ticker — updates the sidebar "Last Refresh" area every second
-setInterval(() => {
-  nextRefreshIn -= 1;
-  if (nextRefreshIn < 0) nextRefreshIn = AUTO_REFRESH_INTERVAL / 1000;
-  const el = document.getElementById('next-refresh-countdown');
-  if (el) el.textContent = `Next refresh in ${nextRefreshIn}s`;
-}, 1000);
 
 setInterval(async () => {
-  nextRefreshIn = AUTO_REFRESH_INTERVAL / 1000;
   try {
     await loadDashboard(true);
   } catch (err) {
