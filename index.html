@@ -1134,9 +1134,7 @@ select.styled {
         </div>
       </div>
       <div style="text-align:right; flex-shrink:0;">
-        <div style="font-size:0.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:3px;">Last Retrained</div>
-        <div id="retrain-time" style="font-size:0.82rem; font-weight:600; color:var(--text);">—</div>
-        <div style="font-size:0.68rem; color:var(--muted); margin-top:2px;">Every 72h via GitHub Actions</div>
+        <div style="font-size:0.68rem; color:var(--muted); margin-top:2px;">Every 12h via GitHub Actions</div>
       </div>
     </div>
 
@@ -1191,7 +1189,7 @@ select.styled {
     </div>
 
     <!-- ── BAND SUMMARY ── -->
-    <div class="section-title">📊 Band-Level Performance Summary (XGBoost)</div>
+    <div class="section-title">📊 Band-Level Performance Summary (LightGBM)</div>
     <div class="grid-3" style="margin-bottom:20px">
       <div class="band-card" style="border-color:rgba(59,130,246,.25);">
         <div class="band-header"><div class="band-dot" style="background:#3b82f6"></div>Short Band <span style="color:var(--muted);font-size:0.75rem;font-weight:400">t+1 → t+24h</span></div>
@@ -1558,11 +1556,11 @@ select.styled {
           <table class="data-table">
             <thead>
               <tr>
-                <th>Horizon</th>
+                <th>Hour (PKT)</th>
                 <th>Time (PKT)</th>
                 <th>Predicted AQI</th>
+                <th>Band</th>
                 <th>Category</th>
-                <th>Health Advice</th>
               </tr>
             </thead>
             <tbody id="manual-tbody"></tbody>
@@ -2599,7 +2597,10 @@ function renderManualResults(data) {
 
     return `
     <tr>
-      <td style="font-weight:600;color:var(--text)">t+${p.horizon_h}h</td>
+      <td style="font-weight:600;color:var(--text)">
+        <div>${String(p.pkt_hour).padStart(2,'0')}:00</div>
+        <div style="font-size:0.7rem;color:var(--muted);font-weight:400;margin-top:2px">t+${p.horizon_h}h</div>
+      </td>
       <td style="color:var(--muted)">${displayTime}</td>
       <td class="td-num" style="color:${p.color};font-weight:700;font-size:1rem">${p.predicted_aqi}</td>
       <td><span class="badge" style="background:${bc}22;color:${bc};border:1px solid ${bc}44">${p.band}</span></td>

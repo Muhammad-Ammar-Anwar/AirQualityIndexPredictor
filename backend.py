@@ -719,6 +719,191 @@ async def get_eda(days: int = Query(5, ge=1, le=30)):
         raise HTTPException(500, str(e))
 
 
+@app.get("/api/manual-predict")
+async def manual_predict(date: str = Query(..., description="Date in YYYY-MM-DD format (PKT)")):
+    """
+    Predict AQI for every hour of a given date (00:00 → 23:00 PKT).
+    Allowed dates: today and the next 2 days (3 days total) in PKT.
+
+    Strategy:
+      - Convert the requested date to UTC midnight.
+      - For each target hour 0..23 on that date (PKT), compute how many
+        hours ahead that is from the current UTC time → horizon h.
+      - Use the closest available KEY_HORIZON model (or interpolate between
+        the two nearest) to predict AQI.
+      - Inject Open-Meteo hourly weather for the exact target UTC timestamp.
+    """
+    import math
+
+    # ── Validate date ─────────────────────────────────────────────────────
+    try:
+        requested_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+
+    pkt_now   = get_pkt_now()
+    today_pkt = pkt_now.date()
+
+    if requested_date < today_pkt:
+        raise HTTPException(400, "Cannot predict for past dates")
+    if requested_date > today_pkt + timedelta(days=2):
+        raise HTTPException(400, "Predictions only available for today and the next 2 days")
+
+    # ── Load models ───────────────────────────────────────────────────────
+    try:
+        cache = await run_in_threadpool(load_models)
+    except Exception as e:
+        raise HTTPException(500, f"Model load failed: {e}")
+
+    models         = cache["models"]
+    valid_indices  = cache["valid_indices"]
+    fc_indices_map = cache["fc_indices_map"]
+    main_scaler    = cache["main_scaler"]
+    feature_cols   = cache["feature_cols"]
+
+    # ── Load latest feature row for base vector ───────────────────────────
+    def _load_df():
+        return _fetch_feature_df()
+
+    df, _ = await run_in_threadpool(_load_df)
+    if df.empty:
+        raise HTTPException(404, "No feature data available for inference")
+
+    df["datetime"] = pd.to_datetime(df["datetime"])
+    if df["datetime"].dt.tz is not None:
+        df["datetime"] = df["datetime"].dt.tz_localize(None)
+
+    available_cols = [c for c in feature_cols if c in df.columns]
+    full_vec = np.zeros(len(feature_cols), dtype=np.float32)
+    latest   = df[available_cols].iloc[-1]
+    for col in available_cols:
+        val = latest[col]
+        full_vec[feature_cols.index(col)] = float(val) if pd.notna(val) else 0.0
+    X_scaled = main_scaler.transform([full_vec])[0]
+
+    # ── Fetch Open-Meteo weather for the full requested date ──────────────
+    sample_fci = next(
+        (v for v in fc_indices_map.values() if isinstance(v, list) and v), []
+    )
+    fc_cols  = [feature_cols[i] for i in sample_fci if i < len(feature_cols)]
+    api_vars = [c for c in FORECAST_WEATHER_COLS if c in fc_cols]
+
+    weather_by_utc: dict = {}   # utc_hour_str -> scaled fc_vec per horizon
+    if api_vars and sample_fci:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    "https://api.open-meteo.com/v1/forecast",
+                    params={
+                        "latitude":     LATITUDE,
+                        "longitude":    LONGITUDE,
+                        "hourly":       ",".join(api_vars),
+                        "timezone":     "UTC",
+                        "forecast_days": 4,
+                    },
+                )
+                resp.raise_for_status()
+            wdata  = resp.json()["hourly"]
+            wtimes = pd.to_datetime(wdata["time"], utc=True).tz_localize(None)
+            for i, ts in enumerate(wtimes):
+                vec = np.zeros(len(feature_cols), dtype=np.float32)
+                for col in api_vars:
+                    if col in feature_cols:
+                        val = wdata[col][i]
+                        vec[feature_cols.index(col)] = float(val) if val is not None else 0.0
+                vec_scaled = main_scaler.transform([vec])[0]
+                weather_by_utc[ts] = vec_scaled
+        except Exception as e:
+            print(f"  Open-Meteo fetch failed for manual predict: {e}")
+
+    # ── Build predictions for each hour of the requested date (PKT) ───────
+    # PKT = UTC+5, so PKT hour H on date D = UTC (H-5) on same or previous day
+    UTC_OFFSET = timedelta(hours=5)
+    now_utc = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+
+    results = []
+    for pkt_hour in range(24):
+        # Exact UTC timestamp for this PKT hour
+        pkt_dt  = datetime(requested_date.year, requested_date.month,
+                           requested_date.day, pkt_hour, 0, 0)
+        utc_dt  = pkt_dt - UTC_OFFSET
+
+        # Horizon = how many hours from now_utc to utc_dt
+        h_float = (utc_dt - now_utc).total_seconds() / 3600.0
+
+        # For past hours on today's date, use the t+1h model (closest available)
+        # Never skip — always predict all 24 hours of the selected date
+        h_effective = max(1.0, h_float)
+
+        # Clamp to [1, 72] — model range
+        h_clamped = max(1, min(72, round(h_effective)))
+
+        # Find the two nearest KEY_HORIZONS for interpolation
+        lower = max((k for k in KEY_HORIZONS if k <= h_clamped), default=KEY_HORIZONS[0])
+        upper = min((k for k in KEY_HORIZONS if k >= h_clamped), default=KEY_HORIZONS[-1])
+
+        def _predict_at(h_model: int) -> float:
+            if h_model not in models:
+                return 0.0
+            vi  = valid_indices.get(h_model, list(range(len(feature_cols))))
+            fci = fc_indices_map.get(h_model, [])
+            base = X_scaled[vi]
+
+            # Weather injection: use the exact UTC timestamp
+            fc_vec = np.zeros(len(fci), dtype=np.float32)
+            if fci and utc_dt in weather_by_utc:
+                wvec = weather_by_utc[utc_dt]
+                fc_vec = wvec[fci]
+
+            enc = horizon_encoding(h_model)
+            row = np.concatenate([base, fc_vec, enc]).reshape(1, -1)
+            return max(0.0, float(models[h_model].predict(row)[0]))
+
+        if lower == upper:
+            pred = _predict_at(lower)
+        else:
+            pred_lo = _predict_at(lower)
+            pred_hi = _predict_at(upper)
+            # Linear interpolation
+            t = (h_clamped - lower) / (upper - lower) if upper != lower else 0
+            pred = pred_lo + t * (pred_hi - pred_lo)
+
+        pred = round(pred, 1)
+        # actual_horizon = real sequential offset from now (1, 2, 3 ... up to ~72)
+        actual_horizon = max(1, round(h_effective))
+        band = "short" if actual_horizon <= 8 else ("medium" if actual_horizon <= 24 else "long")
+
+        results.append({
+            "pkt_hour":      pkt_hour,
+            "pkt_time":      pkt_dt.strftime("%Y-%m-%d %H:%M"),
+            "utc_time":      utc_dt.isoformat() + "Z",
+            "horizon_h":     actual_horizon,
+            "predicted_aqi": pred,
+            "band":          band,
+            "category":      aqi_label(pred),
+            "color":         aqi_color(pred),
+        })
+
+    if not results:
+        raise HTTPException(404, "No predictions could be generated for this date")
+
+    # ── Summary stats ─────────────────────────────────────────────────────
+    aqis = [r["predicted_aqi"] for r in results]
+    summary = {
+        "date":     date,
+        "mean_aqi": round(sum(aqis) / len(aqis), 1),
+        "max_aqi":  max(aqis),
+        "min_aqi":  min(aqis),
+        "hours":    len(results),
+        "dominant_category": max(
+            set(r["category"] for r in results),
+            key=lambda c: sum(1 for r in results if r["category"] == c)
+        ),
+    }
+
+    return {"date": date, "summary": summary, "predictions": results}
+
+
 @app.get("/api/model-info")
 async def get_model_info():
     """Model architecture & per-horizon metrics."""
