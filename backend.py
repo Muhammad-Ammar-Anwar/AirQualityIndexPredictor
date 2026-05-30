@@ -159,6 +159,13 @@ def load_models() -> dict:
             pass  # Not compressed — use raw bytes directly
         return pickle.loads(raw)
 
+    # Pull created_at from any horizon doc (they all share the same training run)
+    created_at = None
+    for doc in best_docs.values():
+        if isinstance(doc.get("horizon"), int) and doc.get("created_at"):
+            created_at = doc["created_at"]
+            break
+
     models        = {}
     valid_indices = {}
     fc_indices_map= {}
@@ -216,6 +223,7 @@ def load_models() -> dict:
         feature_cols=feature_cols,
         training_logs=training_logs,
         model_name=model_name_used,
+        created_at=created_at,
     )
     return _model_cache
 
@@ -319,7 +327,7 @@ async def generate_forecast(cache: dict, df: pd.DataFrame) -> list:
             band = "short" if h <= 8 else ("medium" if h <= 24 else "long")
             forecasts.append({
                 "hour":          h,
-                "datetime":      (last_dt + timedelta(hours=h)).isoformat(),
+                "datetime":      (last_dt + timedelta(hours=h)).isoformat() + "Z",
                 "predicted_aqi": round(pred, 1),
                 "band":          band,
                 "category":      aqi_label(pred),
@@ -472,7 +480,7 @@ async def get_current():
             "aqi":             aqi,
             "category":        aqi_label(aqi),
             "color":           aqi_color(aqi),
-            "datetime":        str(row.get("datetime", "")),
+            "datetime":        str(row.get("datetime", "")).replace(" ", "T") + "Z",
             "pkt_now":         get_pkt_now().isoformat(),
             "stale":           stale,
             "weather":         weather,
@@ -628,6 +636,15 @@ async def get_model_info():
         training_logs = cache["training_logs"]
         feature_cols  = cache["feature_cols"]
         model_name    = cache.get("model_name", "unknown")
+        created_at    = cache.get("created_at")
+
+        # Format created_at as ISO string with Z suffix for frontend
+        created_at_str = None
+        if created_at:
+            if hasattr(created_at, "isoformat"):
+                created_at_str = created_at.isoformat() + "Z"
+            else:
+                created_at_str = str(created_at)
 
         rows = []
         for h in KEY_HORIZONS:
@@ -652,6 +669,7 @@ async def get_model_info():
             "metrics":       rows,
             "feature_count": len(feature_cols),
             "features":      feature_cols,
+            "created_at":    created_at_str,
             "architecture": {
                 "algorithm":          algo_map.get(model_name, model_name),
                 "model_name":         model_name,
