@@ -196,13 +196,15 @@ def _api_get(url: str, params: dict, max_retries: int = 5, fallback_url: str = N
     raise RuntimeError("API request failed after all retries")
 
 
-def fetch_recent_hours():
-    """Fetch recent weather + air quality data for the last LOOKBACK_HOURS.
+def fetch_recent_hours(lookback_hours=None):
+    """Fetch recent weather + air quality data.
 
     Uses past_days=1 on both APIs to get confirmed historical data rather
     than relying solely on forecast data which can lag 1-6h behind real time.
+    lookback_hours overrides LOOKBACK_HOURS when provided (used for backfill).
     """
-    print(f"[FETCH] Fetching last {LOOKBACK_HOURS}h weather + air quality ...")
+    hours = lookback_hours if lookback_hours is not None else LOOKBACK_HOURS
+    print(f"[FETCH] Fetching last {hours}h weather + air quality ...")
 
     # Use past_days=1 + forecast_days=1 to ensure current and recent hours
     # are always available regardless of forecast model update lag
@@ -239,7 +241,7 @@ def fetch_recent_hours():
     merged = pd.merge(weather_df, aq_df, on="datetime", how="inner")
 
     now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
-    cutoff = now - timedelta(hours=LOOKBACK_HOURS - 1)
+    cutoff = now - timedelta(hours=hours - 1)
 
     print(f"[FETCH] UTC now (truncated): {now}")
     print(f"[FETCH] Cutoff: {cutoff}")
@@ -640,11 +642,12 @@ def engineer_current_hour(raw_row, history_df):
 
 def run_hourly_pipeline():
     """Full hourly pipeline:
-    1. Fetch last 3 hours from forecast API
-    2. Check MongoDB for duplicates — skip already uploaded hours
-    3. Fetch 48h history from MongoDB for lag/rolling features
-    4. Engineer features for each new hour
-    5. Upload only new records to MongoDB
+    1. Auto-detect gap from MongoDB — extend lookback if data is missing
+    2. Fetch missing hours from API
+    3. Check MongoDB for duplicates — skip already uploaded hours
+    4. Fetch 48h history from MongoDB for lag/rolling features
+    5. Engineer features for each new hour
+    6. Upload only new records to MongoDB
     """
     print("=" * 70)
     print(" Pearls AQI Predictor — Hourly Pipeline")
@@ -653,11 +656,34 @@ def run_hourly_pipeline():
     print(f" Target DB: {DB_NAME}.{COLLECTION_NAME}")
     print("=" * 70)
 
-    # ── Step 1: Fetch last 3 hours ──
-    print(f"\n[1/4] FETCHING LAST {LOOKBACK_HOURS} HOURS")
+    # ── Auto-detect gap: how many hours are missing from MongoDB? ──
+    lookback = LOOKBACK_HOURS
+    try:
+        client = get_mongo_client()
+        col = client[DB_NAME][COLLECTION_NAME]
+        latest_doc = list(col.find({}, {"datetime": 1, "_id": 0})
+                          .sort("datetime", -1).limit(1))
+        client.close()
+        if latest_doc:
+            latest_dt = pd.Timestamp(latest_doc[0]["datetime"])
+            if latest_dt.tzinfo is not None:
+                latest_dt = latest_dt.tz_convert("UTC").tz_localize(None)
+            now = pd.Timestamp.utcnow().replace(minute=0, second=0,
+                                                microsecond=0, tzinfo=None)
+            gap_hours = int((now - latest_dt).total_seconds() / 3600)
+            if gap_hours > LOOKBACK_HOURS:
+                lookback = min(gap_hours + 1, 48)  # cap at 48h
+                print(f"[GAP] Last record: {latest_dt} — gap of {gap_hours}h detected.")
+                print(f"[GAP] Extending lookback to {lookback}h to backfill.")
+    except Exception as e:
+        print(f"[GAP] Could not check gap: {e} — using default lookback {lookback}h")
+
+    # ── Step 1: Fetch missing hours ──
+    print(f"\n[1/4] FETCHING LAST {lookback} HOURS")
     print("-" * 50)
 
-    raw_df = fetch_recent_hours()
+    raw_df = fetch_recent_hours(lookback_hours=lookback)
+
     if raw_df.empty:
         print("  No data fetched — skipping this run (will retry next hour).")
         print("=" * 70)
