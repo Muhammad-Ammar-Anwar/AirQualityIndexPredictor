@@ -12,8 +12,8 @@
 
 ## What It Does
 
-- Collects **weather & air quality variables** every hour from Open-Meteo APIs
-- Engineers **features** (rolling stats, lags, cyclical encodings, interactions, AQI autoregressive) and stores them in MongoDB Atlas
+- Collects **35 weather & air quality variables** every hour from Open-Meteo APIs
+- Engineers **186+ features** (rolling stats, lags, cyclical encodings, interactions, AQI autoregressive) and stores them in MongoDB Atlas
 - Trains **per-horizon XGBoost / LightGBM / Random Forest models** (18 models, t+1h to t+72h) every 12 hours — best model selected automatically by RMSE
 - Serves a **6-page dark-theme dashboard** (HTML + FastAPI backend) with:
   - Real-time AQI gauge with live weather conditions
@@ -56,26 +56,42 @@ Hugging Face Space)       Trains XGBoost / LightGBM / RF
 
 ## Model Performance
 
-| Band | Horizons | Avg R² | Avg RMSE | Avg MAE |
-|:-----|:---------|:-------|:---------|:--------|
-| Short | t+1h → t+8h | 0.8738 | 5.52 | 2.86 |
-| Medium | t+9h → t+24h | 0.6171 | 12.31 | 8.52 |
-| Long | t+25h → t+72h | ~0.45 | ~18.0 | ~13.0 |
+**Selected model: XGBoost** — chosen by avg RMSE across probe horizons (t+1, t+6, t+24, t+48).
 
-**Best model: XGBoost** — selected by avg RMSE across probe horizons (t+1, t+6, t+24, t+48).  
-Best single horizon: t+1h R² ≈ 0.98 · Worst: t+72h (long-range uncertainty).
+### Model Comparison
+
+| Model | Avg R² | Avg RMSE | Avg MAE | Short R² | Medium R² | Long R² |
+|:------|:-------|:---------|:--------|:---------|:----------|:--------|
+| **XGBoost** ✓ | **0.8480** | **13.49** | **9.55** | **0.8715** | **0.7361** | **0.5365** |
+| LightGBM | 0.8210 | 14.31 | 10.18 | 0.8590 | 0.7142 | 0.4898 |
+| Random Forest | 0.7820 | 15.82 | 11.24 | 0.8421 | 0.6934 | 0.4105 |
+
+### XGBoost Window Performance
+
+| Window | Horizons | Avg RMSE | Avg MAE | Avg R² | Quality |
+|:-------|:---------|:---------|:--------|:-------|:--------|
+| Short | t+1 → t+24h | 5.596 | 2.256 | **0.8715** | ✅ Excellent |
+| Medium | t+25 → t+48h | 10.85 | 9.996 | **0.7361** | 🟡 Good |
+| Long | t+49 → t+72h | 17.993 | 12.383 | **0.5365** | 🟠 Moderate |
+
+### LightLGM Band-Level Detail
+
+| Band | Horizons | Avg RMSE | Avg MAE | Avg R² |
+|:-----|:---------|:---------|:--------|:-------|
+| Short | t+1 → t+24h | 5.52 | 2.86 | 0.9138 |
+| Medium | t+25 → t+48h | 12.31 | 8.52 | 0.6171 |
+| Long | t+49 → t+72h | 18.44 | 13.69 | 0.1347 |
 
 ---
 
 ## Implementation
-
 ### 1. Data Collection
 
 Weather and pollutant data are collected from two Open-Meteo endpoints:
 
 **Weather variables (18):** `temperature_2m`, `relative_humidity_2m`, `dew_point_2m`, `apparent_temperature`, `precipitation`, `rain`, `snowfall`, `surface_pressure`, `pressure_msl`, `cloud_cover` (total + low/mid/high bands), `windspeed_10m`, `winddirection_10m`, `wind_gusts_10m`, `shortwave_radiation`, `vapour_pressure_deficit`
 
-**Air quality variables (17):** `pm10`, `pm2_5`, `carbon_monoxide`, `nitrogen_dioxide`, `sulphur_dioxide`, `ozone`, `aerosol_optical_depth`, `dust`, `uv_index`, `uv_index_clear_sky`, `carbon_dioxide`, `us_aqi`, `us_aqi_pm2_5`, `us_aqi_pm10`, `us_aqi_nitrogen_dioxide`, `us_aqi_ozone`, `us_aqi_sulphur_dioxide`, `us_aqi_carbon_monoxide`
+**Air quality variables (17):** `pm10`, `pm2_5`, `carbon_monoxide`, `nitrogen_dioxide`, `sulphur_dioxide`, `ozone`, `aerosol_optical_depth`, `dust`, `uv_index`, `uv_index_clear_sky`, `carbon_dioxide`
 
 The `us_aqi` value is sourced directly from the Open-Meteo API which applies proper EPA rolling averages (PM: 24h, O₃/CO: 8h, NO₂/SO₂: 1h) — more accurate than instantaneous manual calculation.
 
