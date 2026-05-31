@@ -1,5 +1,5 @@
 """
-AQI SeekAI — FastAPI Backend
+AQI — FastAPI Backend
 Run with: uvicorn backend:app --reload --port 8000
 """
 

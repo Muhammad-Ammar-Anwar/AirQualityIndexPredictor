@@ -16,7 +16,7 @@ import pytz
 warnings.filterwarnings("ignore")
 
 st.set_page_config(
-    page_title="AQI SeekAI — Karachi",
+    page_title="AQI — Karachi",
     page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded",
