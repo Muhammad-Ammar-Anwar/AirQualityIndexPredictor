@@ -396,7 +396,7 @@ async def lifespan(app: FastAPI):
         print(f"Startup preload failed (will retry on first request): {e}")
     yield
 
-app = FastAPI(title="AQI SeekAI API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Air Quality Index API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
