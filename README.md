@@ -303,7 +303,7 @@ Side-by-side comparison of all 3 trained models (XGBoost, LightGBM, Random Fores
 git clone https://github.com/SeekAI-786/AQI_Predictor.git
 cd AQI_Predictor
 
-python -m venv venv
+python -m venv myenv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # Linux/Mac
 
@@ -313,11 +313,11 @@ pip install -r requirements.txt
 Create a `.env` file:
 
 ```env
-MONGODB_URI=mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/
-MONGODB_DB=AQI_Project
-MONGODB_FEATURES_COLLECTION=karachi_aqi_features
-MODEL_DB=aqi_model_store
-MODEL_COL=AQI_72h_model
+MONGODB_URI
+MONGODB_DB
+MONGODB_FEATURES_COLLECTION
+MODEL_DB
+MODEL_COL
 ```
 
 Run the backend:
