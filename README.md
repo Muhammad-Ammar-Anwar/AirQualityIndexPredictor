@@ -252,6 +252,34 @@ Single-file static dashboard on **[Vercel](https://air-quality-index-predictor.v
 
 ---
 
+## Dashboard Screenshots
+
+### 🏠 Dashboard
+![Dashboard](Frontend%20Pictures/Dashboard.png)
+Live AQI gauge with color-coded category badge, 72h forecast preview chart, forecast milestone chips, current weather conditions panel, and pollutant sub-AQI breakdown.
+
+### 📈 72h Forecast
+![72h Forecast](Frontend%20Pictures/72h%20Forecast.png)
+Full 72-hour AQI forecast chart split into short / medium / long bands, band summary cards with avg/peak/min AQI, and a detailed scrollable table with category and band badges.
+
+### 🗓️ Manual Predict
+![Manual Predict](Frontend%20Pictures/Manual%20Predict.png)
+Compact date calendar restricted to today and the next 2 days, with a full 24-hour hourly prediction table, AQI chart, and per-hour chips showing time, horizon, AQI value, and category.
+
+### 📊 Historical Data
+![Historical Data](Frontend%20Pictures/Historical%20Data.png)
+AQI time series chart for up to 30 days, summary stats (mean, median, peak, min), average AQI by hour-of-day bar chart, and multi-pollutant trend lines.
+
+### 🔬 Analytics
+![Analytics](Frontend%20Pictures/Analytics.png)
+AQI category distribution doughnut chart, temperature vs AQI scatter plot, day-of-week × hour heatmap showing average AQI patterns, and dominant pollutant frequency bar chart.
+
+### 🤖 Model Info
+![Model Info](Frontend%20Pictures/Model%20Info.png)
+Side-by-side comparison of all 3 trained models (XGBoost, LightGBM, Random Forest) with R², RMSE, and MAE metrics, band-level performance cards, window performance table, and full feature tag list.
+
+---
+
 ## Continuous Automation
 
 | Workflow | Schedule | Steps |
