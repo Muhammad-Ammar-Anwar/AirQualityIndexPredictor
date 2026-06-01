@@ -37,7 +37,7 @@ Open-Meteo APIs
          │
          ▼  GitHub Actions — every hour at :10 UTC
 hourly_pipeline.py
-  Fetch 3h → Dedup → Engineer 186+ features → Upload to MongoDB
+  Fetch 3h → Dedup → Engineer 35+ features → Upload to MongoDB
          │
          ▼
 MongoDB Atlas
@@ -69,11 +69,11 @@ MongoDB Atlas
 
 The `us_aqi` target uses Open-Meteo's EPA-compliant rolling averages (PM: 24h, O₃/CO: 8h, NO₂/SO₂: 1h).
 
-### Feature Engineering — 186+ Features
+### Feature Engineering 
 
 | Category | Count | Description |
 |:---------|:------|:------------|
-| Weather derivatives | ~88 | Rolling means (6/12/24h), rolling std (24h), lags (12/24h) for 11 weather vars |
+| Weather derivatives | ~16 | Rolling means (6/12/24h), rolling std (24h), lags (12/24h) for 11 weather vars |
 | Atmospheric derivatives | ~20 | Rolling/lags for aerosol, dust, UV index, CO₂ |
 | Sub-AQI features | ~30 | EPA sub-index lags (6/12/24h) + rolling means (12/24h) for 6 pollutants |
 | Time features | 9 | Cyclical sin/cos for hour, day-of-week, month, day-of-year + `is_weekend` |
